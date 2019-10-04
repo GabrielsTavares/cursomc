@@ -24,22 +24,25 @@ import com.nelioalves.cursomc.repositories.ProdutoRepository;
 @SpringBootApplication
 public class CursomcApplication implements CommandLineRunner {
 	
-	@Autowired
 	private CategoriaRepository categoriaRepository;
-	
-	@Autowired
 	private ProdutoRepository produtoRepository;
-	
-	@Autowired
 	private EstadoRepository estadoRepository;
-	
-	@Autowired
 	private CidadeRepository cidadeRepository;
+	private ClienteRepository clienteRepository;
+	private EnderecoRepository enderecoRepository;
 	
 	@Autowired
-	private ClienteRepository clienteRepository;
+	 public CursomcApplication(CategoriaRepository categoriaRepository, ProdutoRepository produtoRepository, 
+			EstadoRepository estadoRepository, CidadeRepository cidadeRepository, ClienteRepository clienteRepository, 
+			EnderecoRepository enderecoRepository) {
+				this.categoriaRepository = categoriaRepository;
+				this.produtoRepository = produtoRepository;
+				this.estadoRepository = estadoRepository;
+				this.cidadeRepository = cidadeRepository;
+				this.clienteRepository = clienteRepository;
+				this.enderecoRepository = enderecoRepository;
+	}
 	
-	private EnderecoRepository enderecoRepository;
 	
 	public static void main(String[] args) {
 		SpringApplication.run(CursomcApplication.class, args);
@@ -77,15 +80,15 @@ public class CursomcApplication implements CommandLineRunner {
 		estadoRepository.saveAll(Arrays.asList(est1, est2));
 		cidadeRepository.saveAll(Arrays.asList(c1, c2, c3));
 		
-		Cliente cliente1 = new Cliente(null, "Maria Silva", "maria@gmail.com", "36378912377", TipoCliente.PESSOAJURIDICA);
-		cliente1.getTelefones().addAll(Arrays.asList("27363323", "93838393"));
-		Endereco endereco1 = new Endereco(null, "Rua Flores", "300", "Apto 303", "Jardim", "38220834", cliente1, c1);
-		Endereco endereco2 = new Endereco(null, "Avenida Matos", "105", "Sala 800", "Centro", "38777012", cliente1, c2);
+		Cliente cli1 = new Cliente(null, "Maria Silva", "maria@gmail.com", "36378912377", TipoCliente.PESSOAFISICA);
+		cli1.getTelefones().addAll(Arrays.asList("27363323", "93838393"));
+		Endereco e1 = new Endereco(null, "Rua Flores", "300", "Apto 303", "Jardim", "38220834", cli1, c1);
+		Endereco e2 = new Endereco(null, "Avenida Matos", "105", "Sala 800", "Centro", "38777012", cli1, c2);
 	
-		cliente1.getEnderecos().addAll(Arrays.asList(endereco1, endereco2));
+		cli1.getEnderecos().addAll(Arrays.asList(e1, e2));
 		
-		clienteRepository.saveAll(Arrays.asList(cliente1));
-		enderecoRepository.saveAll(Arrays.asList(endereco1, endereco2));
+		clienteRepository.save(cli1);
+		enderecoRepository.saveAll(Arrays.asList(e1, e2));
 		
 	
 	}
