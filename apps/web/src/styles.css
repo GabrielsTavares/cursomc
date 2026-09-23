@@ -1,0 +1,79 @@
+:root {
+  color-scheme: light;
+  --ink: #14212b;
+  --muted: #4a5d6a;
+  --ok: #1f7a4c;
+  --warn: #9a6700;
+  --bad: #b42318;
+  --bg1: #e8f1f4;
+  --bg2: #cfe0e8;
+  --accent: #0b6e4f;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    radial-gradient(1200px 600px at 10% -10%, #9fd0c0 0%, transparent 55%),
+    linear-gradient(160deg, var(--bg1), var(--bg2));
+}
+
+.page {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 18vh 1.5rem 3rem;
+}
+
+.brand {
+  margin: 0 0 0.75rem;
+  font-size: clamp(2.4rem, 6vw, 3.6rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  color: var(--accent);
+  animation: rise 700ms ease both;
+}
+
+h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.35rem;
+  font-weight: 600;
+  animation: rise 700ms ease 80ms both;
+}
+
+.lede {
+  margin: 0 0 1.5rem;
+  color: var(--muted);
+  line-height: 1.5;
+  animation: rise 700ms ease 140ms both;
+}
+
+.status {
+  animation: rise 700ms ease 220ms both;
+}
+
+.ok {
+  color: var(--ok);
+}
+.warn {
+  color: var(--warn);
+}
+.bad {
+  color: var(--bad);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
