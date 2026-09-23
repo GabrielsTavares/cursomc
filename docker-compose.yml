@@ -39,8 +39,9 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-    environment:
-      VITE_API_URL: http://localhost:3000
+      args:
+        # Browser on the host talks to published API port (not the Docker network name).
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000}
     ports:
       - "5173:80"
     depends_on:

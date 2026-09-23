@@ -17,6 +17,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@creator-hub/shared-types':
+        specifier: workspace:*
+        version: link:../../packages/shared-types
       react:
         specifier: ^19.1.0
         version: 19.3.0

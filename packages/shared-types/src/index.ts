@@ -41,8 +41,17 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface LoginResponse {
+  user: User;
+  accessToken: string;
+}
+
 export interface AuthUserResponse {
   user: User;
+}
+
+export interface ProjectsResponse {
+  projects: ContentProject[];
 }
 
 export interface CreateProjectRequest {

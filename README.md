@@ -20,7 +20,7 @@ This repository also contains the legacy Spring study project (`cursomc`); Creat
 ## Layout
 
 ```text
-apps/web                 # Vite + React placeholder (calls GET /health)
+apps/web                 # Vite + React — login + lista de projects
 services/api             # Fastify hexagonal API
 packages/shared-types    # Shared TS types
 docker-compose.yml       # postgres + api (+ web profile)
@@ -31,14 +31,28 @@ data/media               # local media volume mount point
 
 ```bash
 cp .env.example .env
-docker compose up --build
+docker compose up --build -d
 ```
 
 - API: `http://localhost:3000/health`
-- Optional web: `docker compose --profile web up --build` → `http://localhost:5173`
+- Optional web: `docker compose --profile web up --build -d` → `http://localhost:5173`
 - Seed user (from `.env.example`): `admin@creator.local` / `changeme123`
 
 Media files persist in the `media_data` Compose volume (`MEDIA_ROOT=/data/media`).
+
+### Como logar na web
+
+1. Suba API + Postgres (+ web):
+
+   ```bash
+   docker compose --profile web up --build -d
+   ```
+
+2. Abra `http://localhost:5173/`
+3. Entre com o seed: **email** `admin@creator.local` / **senha** `changeme123`
+4. Após sucesso, a UI mostra o utilizador e a lista de projects (`GET /api/v1/projects`) e permite **Sair** (logout).
+
+A web no Compose é buildada com `VITE_API_URL=http://localhost:3000` (URL que o **browser no host** alcança). A API aceita CORS de `http://localhost:5173` com credentials; o login guarda o JWT (`accessToken`) e também recebe o cookie httpOnly `creator_hub_session`.
 
 ## Local (host API + Compose Postgres)
 
@@ -54,6 +68,8 @@ pnpm --filter @creator-hub/api db:seed
 pnpm --filter @creator-hub/api dev
 pnpm --filter @creator-hub/web dev
 ```
+
+No Vite, `VITE_API_URL` default é `http://localhost:3000`. Se preferir same-origin, defina `VITE_API_URL=` (vazio) e o proxy em `vite.config.ts` encaminha `/api` e `/health` para a API.
 
 ## API (Phase 1)
 
@@ -80,6 +96,6 @@ Smoke tests cover `/health` response shape and login domain use case (no Postgre
 
 ## Phase 1 DoD vs later
 
-**In this PR:** monorepo, Compose, migrations (`users`, `workspaces`, `content_projects`), seed user, login, project CRUD, health, logging, CORS, minimal web, basic tests.
+**In this PR:** monorepo, Compose, migrations (`users`, `workspaces`, `content_projects`), seed user, login, project CRUD, health, logging, CORS, web login UI, basic tests.
 
 **Phase 2+:** Episodes/Beats, media upload, scheduler/publishers, affiliate module, mobile app, Remotion/TTS, billing.
