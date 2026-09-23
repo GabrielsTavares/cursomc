@@ -2,7 +2,7 @@
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
 RUN corepack enable
-COPY package.json pnpm-workspace.yaml ./
+COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/shared-types/package.json packages/shared-types/
 COPY apps/web/package.json apps/web/
 RUN pnpm install --filter @creator-hub/web... --frozen-lockfile=false
