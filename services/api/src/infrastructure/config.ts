@@ -18,6 +18,14 @@ const envSchema = z.object({
   SEED_USER_PASSWORD: z.string().min(8).default("changeme123"),
   SEED_USER_DISPLAY_NAME: z.string().default("Gabriel"),
   MEDIA_ROOT: z.string().default("/data/media"),
+  /**
+   * AES key material for social credential vault (MVP).
+   * Min 32 chars. Not a full KMS — see README limitations.
+   */
+  CREDENTIALS_ENCRYPTION_KEY: z
+    .string()
+    .min(32)
+    .default("local-dev-only-change-me-credentials-key!!"),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

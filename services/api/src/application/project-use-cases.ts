@@ -79,3 +79,14 @@ export class UpdateProjectUseCase {
     return toPublicProject(updated);
   }
 }
+
+export class DeleteProjectUseCase {
+  constructor(private readonly projects: ProjectRepository) {}
+
+  async execute(ownerUserId: string, projectId: string): Promise<void> {
+    const deleted = await this.projects.delete(projectId, ownerUserId);
+    if (!deleted) {
+      throw new NotFoundError("Project not found");
+    }
+  }
+}

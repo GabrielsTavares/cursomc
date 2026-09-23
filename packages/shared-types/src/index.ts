@@ -1,6 +1,7 @@
 export type UserId = string & { readonly __brand: "UserId" };
 export type WorkspaceId = string & { readonly __brand: "WorkspaceId" };
 export type ContentProjectId = string & { readonly __brand: "ContentProjectId" };
+export type SocialAccountId = string & { readonly __brand: "SocialAccountId" };
 
 export type ProjectType =
   | "CREATOR"
@@ -8,6 +9,16 @@ export type ProjectType =
   | "AFFILIATE"
   | "BRAND"
   | "OTHER";
+
+export type SocialPlatform =
+  | "TIKTOK"
+  | "INSTAGRAM"
+  | "YOUTUBE"
+  | "KWAI"
+  | "FACEBOOK"
+  | "OTHER";
+
+export type SocialAccountStatus = "CONNECTED" | "NEEDS_CREDENTIALS" | "MANUAL";
 
 export interface User {
   id: UserId;
@@ -25,6 +36,37 @@ export interface ContentProject {
   enabledModules: string[];
   localeDefault: string;
   createdAt: string;
+}
+
+/** Secrets never leave the API as plaintext after save — only masks. */
+export interface SocialCredentialMasks {
+  accessToken: string | null;
+  refreshToken: string | null;
+  clientId: string | null;
+  clientSecret: string | null;
+  apiKey: string | null;
+  hasExtraJson: boolean;
+}
+
+export interface SocialAccount {
+  id: SocialAccountId;
+  projectId: ContentProjectId;
+  platform: SocialPlatform;
+  displayName: string;
+  status: SocialAccountStatus;
+  externalAccountId: string | null;
+  credentials: SocialCredentialMasks;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SocialCredentialsInput {
+  accessToken?: string;
+  refreshToken?: string;
+  clientId?: string;
+  clientSecret?: string;
+  apiKey?: string;
+  extraJson?: string;
 }
 
 export interface HealthResponse {
@@ -66,6 +108,26 @@ export interface UpdateProjectRequest {
   projectType?: ProjectType;
   localeDefault?: string;
   enabledModules?: string[];
+}
+
+export interface SocialAccountsResponse {
+  socialAccounts: SocialAccount[];
+}
+
+export interface CreateSocialAccountRequest {
+  platform: SocialPlatform;
+  displayName: string;
+  status?: SocialAccountStatus;
+  externalAccountId?: string;
+  credentials?: SocialCredentialsInput;
+}
+
+export interface UpdateSocialAccountRequest {
+  displayName?: string;
+  status?: SocialAccountStatus;
+  externalAccountId?: string | null;
+  /** Partial update: blank strings are ignored; omit keys to leave unchanged. */
+  credentials?: SocialCredentialsInput;
 }
 
 export interface ApiErrorBody {

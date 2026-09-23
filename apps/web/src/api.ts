@@ -1,6 +1,11 @@
 import type {
   ApiErrorBody,
   ContentProject,
+  CreateProjectRequest,
+  CreateSocialAccountRequest,
+  ProjectType,
+  SocialAccount,
+  UpdateSocialAccountRequest,
   User,
 } from "@creator-hub/shared-types";
 
@@ -50,10 +55,15 @@ function humanizeError(status: number, body: ApiErrorBody | null, network: boole
     return "Não foi possível contactar a API. Verifique se ela está no ar (porta 3000).";
   }
   if (status === 401) {
-    return "Email ou senha inválidos.";
+    return body?.message === "Unauthorized"
+      ? "Sessão expirada ou sem permissão. Entre de novo."
+      : "Email ou senha inválidos.";
+  }
+  if (status === 404) {
+    return body?.message ?? "Recurso não encontrado.";
   }
   if (status === 400) {
-    return body?.message ?? "Dados de login inválidos.";
+    return body?.message ?? "Dados inválidos. Reveja o formulário.";
   }
   if (status >= 500) {
     return "A API retornou um erro interno. Tente de novo em instantes.";
@@ -71,10 +81,7 @@ async function parseJson(res: Response): Promise<unknown> {
   }
 }
 
-async function apiFetch<T>(
-  path: string,
-  init: RequestInit = {},
-): Promise<T> {
+async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
@@ -101,7 +108,11 @@ async function apiFetch<T>(
       data && typeof data === "object" && "message" in data
         ? (data as ApiErrorBody)
         : null;
-    throw new ApiClientError(humanizeError(res.status, errBody, false), res.status, errBody?.code);
+    throw new ApiClientError(
+      humanizeError(res.status, errBody, false),
+      res.status,
+      errBody?.code,
+    );
   }
   return data as T;
 }
@@ -138,3 +149,72 @@ export async function fetchProjects(): Promise<ContentProject[]> {
   const result = await apiFetch<{ projects: ContentProject[] }>("/api/v1/projects");
   return result.projects;
 }
+
+export async function createProject(input: CreateProjectRequest): Promise<ContentProject> {
+  const result = await apiFetch<{ project: ContentProject }>("/api/v1/projects", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return result.project;
+}
+
+export async function fetchProject(id: string): Promise<ContentProject> {
+  const result = await apiFetch<{ project: ContentProject }>(`/api/v1/projects/${id}`);
+  return result.project;
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  await apiFetch<null>(`/api/v1/projects/${id}`, { method: "DELETE" });
+}
+
+export async function fetchSocialAccounts(projectId: string): Promise<SocialAccount[]> {
+  const result = await apiFetch<{ socialAccounts: SocialAccount[] }>(
+    `/api/v1/projects/${projectId}/social-accounts`,
+  );
+  return result.socialAccounts;
+}
+
+export async function createSocialAccount(
+  projectId: string,
+  input: CreateSocialAccountRequest,
+): Promise<SocialAccount> {
+  const result = await apiFetch<{ socialAccount: SocialAccount }>(
+    `/api/v1/projects/${projectId}/social-accounts`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+  return result.socialAccount;
+}
+
+export async function updateSocialAccount(
+  projectId: string,
+  accountId: string,
+  input: UpdateSocialAccountRequest,
+): Promise<SocialAccount> {
+  const result = await apiFetch<{ socialAccount: SocialAccount }>(
+    `/api/v1/projects/${projectId}/social-accounts/${accountId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
+  return result.socialAccount;
+}
+
+export async function deleteSocialAccount(
+  projectId: string,
+  accountId: string,
+): Promise<void> {
+  await apiFetch<null>(`/api/v1/projects/${projectId}/social-accounts/${accountId}`, {
+    method: "DELETE",
+  });
+}
+
+export const UI_PROJECT_TYPES: { value: ProjectType; label: string }[] = [
+  { value: "CREATOR", label: "Creator" },
+  { value: "AFFILIATE", label: "Affiliate" },
+  { value: "BRAND", label: "Brand" },
+  { value: "OTHER", label: "Other" },
+];

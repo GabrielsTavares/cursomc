@@ -5,19 +5,29 @@ import type { AppConfig } from "../infrastructure/config.js";
 import { createDb } from "../infrastructure/db/client.js";
 import {
   DrizzleProjectRepository,
+  DrizzleSocialAccountRepository,
   DrizzleUserRepository,
 } from "../infrastructure/db/repositories.js";
 import {
   Argon2PasswordHasher,
   JoseJwtTokenService,
 } from "../infrastructure/auth/security.js";
+import { AesGcmCredentialVault } from "../infrastructure/security/credential-vault.js";
+import { ManualPublisher } from "../infrastructure/publishers/manual-publisher.js";
 import { GetCurrentUserUseCase, LoginUseCase } from "../application/auth-use-cases.js";
 import {
   CreateProjectUseCase,
+  DeleteProjectUseCase,
   GetProjectUseCase,
   ListProjectsUseCase,
   UpdateProjectUseCase,
 } from "../application/project-use-cases.js";
+import {
+  CreateSocialAccountUseCase,
+  DeleteSocialAccountUseCase,
+  ListSocialAccountsUseCase,
+  UpdateSocialAccountUseCase,
+} from "../application/social-account-use-cases.js";
 import {
   DomainError,
   NotFoundError,
@@ -27,7 +37,7 @@ import {
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerProjectRoutes } from "./routes/projects.js";
-import type { TokenService } from "../application/ports.js";
+import type { SocialPublisher, TokenService } from "../application/ports.js";
 
 export interface AppServices {
   config: AppConfig;
@@ -39,6 +49,12 @@ export interface AppServices {
   createProject: CreateProjectUseCase;
   getProject: GetProjectUseCase;
   updateProject: UpdateProjectUseCase;
+  deleteProject: DeleteProjectUseCase;
+  listSocialAccounts: ListSocialAccountsUseCase;
+  createSocialAccount: CreateSocialAccountUseCase;
+  updateSocialAccount: UpdateSocialAccountUseCase;
+  deleteSocialAccount: DeleteSocialAccountUseCase;
+  manualPublisher: SocialPublisher;
 }
 
 export async function createApp(config: AppConfig) {
@@ -46,8 +62,11 @@ export async function createApp(config: AppConfig) {
 
   const users = new DrizzleUserRepository(db);
   const projects = new DrizzleProjectRepository(db);
+  const vault = new AesGcmCredentialVault(config.CREDENTIALS_ENCRYPTION_KEY);
+  const socialAccounts = new DrizzleSocialAccountRepository(db, vault);
   const hasher = new Argon2PasswordHasher();
   const tokens = new JoseJwtTokenService(config.JWT_SECRET, config.JWT_EXPIRES_IN);
+  const manualPublisher = new ManualPublisher();
 
   const services: AppServices = {
     config,
@@ -59,6 +78,12 @@ export async function createApp(config: AppConfig) {
     createProject: new CreateProjectUseCase(projects),
     getProject: new GetProjectUseCase(projects),
     updateProject: new UpdateProjectUseCase(projects),
+    deleteProject: new DeleteProjectUseCase(projects),
+    listSocialAccounts: new ListSocialAccountsUseCase(projects, socialAccounts),
+    createSocialAccount: new CreateSocialAccountUseCase(projects, socialAccounts),
+    updateSocialAccount: new UpdateSocialAccountUseCase(projects, socialAccounts),
+    deleteSocialAccount: new DeleteSocialAccountUseCase(projects, socialAccounts),
+    manualPublisher,
   };
 
   const app = Fastify({
@@ -72,6 +97,15 @@ export async function createApp(config: AppConfig) {
           "DATABASE_URL",
           "JWT_SECRET",
           "SEED_USER_PASSWORD",
+          "CREDENTIALS_ENCRYPTION_KEY",
+          "accessToken",
+          "refreshToken",
+          "clientSecret",
+          "apiKey",
+          "credentials.accessToken",
+          "credentials.refreshToken",
+          "credentials.clientSecret",
+          "credentials.apiKey",
         ],
         censor: "[Redacted]",
       },
