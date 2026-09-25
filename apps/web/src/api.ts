@@ -4,10 +4,12 @@ import type {
   ContentProject,
   CreateEpisodeRequest,
   CreateProjectRequest,
+  CreateScheduleRequest,
   CreateSocialAccountRequest,
   Episode,
   MediaAsset,
   ProjectType,
+  ScheduledPublication,
   SocialAccount,
   UpdateSocialAccountRequest,
   User,
@@ -319,6 +321,72 @@ export async function deleteMediaAsset(projectId: string, mediaId: string): Prom
   await apiFetch<null>(`/api/v1/projects/${projectId}/media/${mediaId}`, {
     method: "DELETE",
   });
+}
+
+export async function fetchPublications(projectId: string): Promise<ScheduledPublication[]> {
+  const result = await apiFetch<{ publications: ScheduledPublication[] }>(
+    `/api/v1/projects/${projectId}/publications`,
+  );
+  return result.publications;
+}
+
+export async function createSchedule(
+  projectId: string,
+  input: CreateScheduleRequest,
+): Promise<ScheduledPublication[]> {
+  const result = await apiFetch<{ publications: ScheduledPublication[] }>(
+    `/api/v1/projects/${projectId}/publications`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return result.publications;
+}
+
+export async function cancelPublication(
+  projectId: string,
+  publicationId: string,
+): Promise<ScheduledPublication> {
+  const result = await apiFetch<{ publication: ScheduledPublication }>(
+    `/api/v1/projects/${projectId}/publications/${publicationId}/cancel`,
+    { method: "POST" },
+  );
+  return result.publication;
+}
+
+export async function retryPublication(
+  projectId: string,
+  publicationId: string,
+): Promise<ScheduledPublication> {
+  const result = await apiFetch<{ publication: ScheduledPublication }>(
+    `/api/v1/projects/${projectId}/publications/${publicationId}/retry`,
+    { method: "POST" },
+  );
+  return result.publication;
+}
+
+export async function publishNow(
+  projectId: string,
+  publicationId: string,
+): Promise<ScheduledPublication> {
+  const result = await apiFetch<{ publication: ScheduledPublication }>(
+    `/api/v1/projects/${projectId}/publications/${publicationId}/publish-now`,
+    { method: "POST" },
+  );
+  return result.publication;
+}
+
+export async function markPublished(
+  projectId: string,
+  publicationId: string,
+  externalPostId?: string,
+): Promise<ScheduledPublication> {
+  const result = await apiFetch<{ publication: ScheduledPublication }>(
+    `/api/v1/projects/${projectId}/publications/${publicationId}/mark-published`,
+    {
+      method: "POST",
+      body: JSON.stringify(externalPostId ? { externalPostId } : {}),
+    },
+  );
+  return result.publication;
 }
 
 /** Authenticated blob URL for 9:16 preview (revoke when done). */

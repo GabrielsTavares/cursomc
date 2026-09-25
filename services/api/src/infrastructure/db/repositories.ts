@@ -4,6 +4,7 @@ import type {
   EpisodeStatus,
   MediaAssetType,
   ProjectType,
+  PublicationStatus,
   SocialAccountStatus,
   SocialPlatform,
 } from "@creator-hub/shared-types";
@@ -11,6 +12,7 @@ import type {
   ContentProjectRecord,
   EpisodeRecord,
   MediaAssetRecord,
+  ScheduledPublicationRecord,
   SocialAccountRecord,
   SocialCredentialSecrets,
   UserRecord,
@@ -20,6 +22,7 @@ import type {
   EpisodeRepository,
   MediaAssetRepository,
   ProjectRepository,
+  PublicationRepository,
   SocialAccountRepository,
   UserRepository,
 } from "../../application/ports.js";
@@ -28,6 +31,7 @@ import {
   contentProjects,
   episodes,
   mediaAssets,
+  scheduledPublications,
   socialAccountSecrets,
   socialAccounts,
   users,
@@ -99,6 +103,27 @@ function mapMediaAsset(row: typeof mediaAssets.$inferSelect): MediaAssetRecord {
     originalFilename: row.originalFilename ?? null,
     sortOrder: row.sortOrder,
     createdAt: row.createdAt,
+  };
+}
+
+function mapPublication(
+  row: typeof scheduledPublications.$inferSelect,
+): ScheduledPublicationRecord {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    episodeId: row.episodeId,
+    platform: row.platform as SocialPlatform,
+    socialAccountId: row.socialAccountId,
+    scheduledAt: row.scheduledAt,
+    caption: row.caption ?? null,
+    status: row.status as PublicationStatus,
+    externalPostId: row.externalPostId ?? null,
+    errorMessage: row.errorMessage ?? null,
+    checklist: row.checklist ?? null,
+    publishAttemptId: row.publishAttemptId ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 
@@ -486,5 +511,156 @@ export class DrizzleMediaAssetRepository implements MediaAssetRepository {
       .where(eq(mediaAssets.episodeId, episodeId));
     const current = rows[0]?.maxOrder;
     return current === null || current === undefined ? 0 : Number(current) + 1;
+  }
+}
+
+export class DrizzlePublicationRepository implements PublicationRepository {
+  constructor(
+    private readonly db: Db["db"],
+    private readonly pool: Db["pool"],
+  ) {}
+
+  async listByProject(projectId: string): Promise<ScheduledPublicationRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(scheduledPublications)
+      .where(eq(scheduledPublications.projectId, projectId))
+      .orderBy(asc(scheduledPublications.scheduledAt));
+    return rows.map(mapPublication);
+  }
+
+  async findByIdForProject(
+    id: string,
+    projectId: string,
+  ): Promise<ScheduledPublicationRecord | null> {
+    const rows = await this.db
+      .select()
+      .from(scheduledPublications)
+      .where(
+        and(
+          eq(scheduledPublications.id, id),
+          eq(scheduledPublications.projectId, projectId),
+        ),
+      )
+      .limit(1);
+    const row = rows[0];
+    return row ? mapPublication(row) : null;
+  }
+
+  async createMany(
+    rows: Array<{
+      projectId: string;
+      episodeId: string;
+      platform: SocialPlatform;
+      socialAccountId: string;
+      scheduledAt: Date;
+      caption: string | null;
+      status: PublicationStatus;
+    }>,
+  ): Promise<ScheduledPublicationRecord[]> {
+    if (rows.length === 0) return [];
+    const now = new Date();
+    const inserted = await this.db
+      .insert(scheduledPublications)
+      .values(
+        rows.map((r) => ({
+          projectId: r.projectId,
+          episodeId: r.episodeId,
+          platform: r.platform,
+          socialAccountId: r.socialAccountId,
+          scheduledAt: r.scheduledAt,
+          caption: r.caption,
+          status: r.status,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      )
+      .returning();
+    return inserted.map(mapPublication);
+  }
+
+  async update(
+    id: string,
+    patch: Partial<{
+      status: PublicationStatus;
+      scheduledAt: Date;
+      caption: string | null;
+      externalPostId: string | null;
+      errorMessage: string | null;
+      checklist: string[] | null;
+      publishAttemptId: string | null;
+    }>,
+  ): Promise<ScheduledPublicationRecord | null> {
+    const [row] = await this.db
+      .update(scheduledPublications)
+      .set({
+        ...patch,
+        updatedAt: new Date(),
+      })
+      .where(eq(scheduledPublications.id, id))
+      .returning();
+    return row ? mapPublication(row) : null;
+  }
+
+  /**
+   * Atomic claim via FOR UPDATE SKIP LOCKED (safe for multi-instance later).
+   */
+  async claimDue(
+    limit: number,
+    attemptId: string,
+    now: Date = new Date(),
+  ): Promise<ScheduledPublicationRecord[]> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const select = await client.query<{ id: string }>(
+        `SELECT id
+         FROM scheduled_publications
+         WHERE status = 'SCHEDULED' AND scheduled_at <= $1
+         ORDER BY scheduled_at ASC
+         FOR UPDATE SKIP LOCKED
+         LIMIT $2`,
+        [now.toISOString(), limit],
+      );
+      if (select.rows.length === 0) {
+        await client.query("COMMIT");
+        return [];
+      }
+      const ids = select.rows.map((r) => r.id);
+      const updated = await client.query(
+        `UPDATE scheduled_publications
+         SET status = 'PUBLISHING',
+             publish_attempt_id = $1,
+             error_message = NULL,
+             updated_at = NOW()
+         WHERE id = ANY($2::uuid[])
+         RETURNING *`,
+        [attemptId, ids],
+      );
+      await client.query("COMMIT");
+      return updated.rows.map((row) =>
+        mapPublication({
+          id: row.id as string,
+          projectId: row.project_id as string,
+          episodeId: row.episode_id as string,
+          platform: row.platform as string,
+          socialAccountId: row.social_account_id as string,
+          scheduledAt: new Date(row.scheduled_at as string),
+          caption: (row.caption as string | null) ?? null,
+          status: row.status as string,
+          externalPostId: (row.external_post_id as string | null) ?? null,
+          errorMessage: (row.error_message as string | null) ?? null,
+          checklist: (row.checklist as string[] | null) ?? null,
+          publishAttemptId: (row.publish_attempt_id as string | null) ?? null,
+          createdAt: new Date(row.created_at as string),
+          updatedAt: new Date(row.updated_at as string),
+        }),
+      );
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 }

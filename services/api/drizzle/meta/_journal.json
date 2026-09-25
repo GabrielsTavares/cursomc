@@ -22,6 +22,13 @@
       "when": 1727200000000,
       "tag": "0002_episodes_media",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1727300000000,
+      "tag": "0003_scheduled_publications",
+      "breakpoints": true
     }
   ]
 }

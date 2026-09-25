@@ -5,6 +5,8 @@ import type {
   Episode,
   MediaAsset,
   ProjectType,
+  PublicationStatus,
+  ScheduledPublication,
   SocialAccount,
   SocialAccountStatus,
   SocialCredentialsInput,
@@ -16,8 +18,10 @@ import {
   UI_CONTENT_KINDS,
   UI_PROJECT_TYPES,
   apiBaseUrl,
+  cancelPublication,
   createEpisode,
   createProject,
+  createSchedule,
   createSocialAccount,
   deleteEpisode,
   deleteMediaAsset,
@@ -30,14 +34,18 @@ import {
   fetchProject,
   fetchProjectMedia,
   fetchProjects,
+  fetchPublications,
   fetchSocialAccounts,
   login,
   logout,
+  markPublished,
+  publishNow,
+  retryPublication,
   updateSocialAccount,
   uploadEpisodeMedia,
 } from "./api";
 
-type ProjectTab = "overview" | "content" | "social" | "library";
+type ProjectTab = "overview" | "content" | "social" | "library" | "calendar";
 
 type Session = {
   user: User;
@@ -444,6 +452,7 @@ function ProjectDetail(props: {
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [library, setLibrary] = useState<MediaAsset[]>([]);
+  const [publications, setPublications] = useState<ScheduledPublication[]>([]);
   const [tab, setTab] = useState<ProjectTab>("content");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -454,16 +463,18 @@ function ProjectDetail(props: {
   const [episodeMedia, setEpisodeMedia] = useState<MediaAsset[]>([]);
 
   async function reload() {
-    const [p, list, eps, media] = await Promise.all([
+    const [p, list, eps, media, pubs] = await Promise.all([
       fetchProject(projectId),
       fetchSocialAccounts(projectId),
       fetchEpisodes(projectId),
       fetchProjectMedia(projectId),
+      fetchPublications(projectId),
     ]);
     setProject(p);
     setAccounts(list);
     setEpisodes(eps);
     setLibrary(media);
+    setPublications(pubs);
   }
 
   async function reloadEpisodeMedia(episodeId: string) {
@@ -593,6 +604,7 @@ function ProjectDetail(props: {
         {(
           [
             ["content", "Conteúdo"],
+            ["calendar", "Calendário"],
             ["library", "Biblioteca"],
             ["social", "Contas sociais"],
             ["overview", "Overview"],
@@ -632,13 +644,14 @@ function ProjectDetail(props: {
             </button>
           </div>
           <p className="muted">
-            Fluxo típico: cria conteúdo → faz upload → pré-visualiza → (depois) agenda e
-            publica. Calendário e publish real ainda não estão neste MVP.
+            Fluxo: cria conteúdo → upload → agenda nas redes → o scheduler publica (ou Kwai
+            fica MANUAL). Tokens ficam só no servidor; `PUBLISH_MODE=dry_run` simula sem rede.
           </p>
           <ul className="stat-inline muted">
             <li>{episodes.length} conteúdos</li>
             <li>{library.length} assets na biblioteca</li>
             <li>{accounts.length} redes</li>
+            <li>{publications.length} agendamentos</li>
           </ul>
         </section>
       )}
@@ -672,6 +685,21 @@ function ProjectDetail(props: {
           onMediaChanged={async () => {
             await reload();
             if (selectedEpisodeId) await reloadEpisodeMedia(selectedEpisodeId);
+          }}
+          onError={(msg) => setFormError(msg)}
+        />
+      )}
+
+      {tab === "calendar" && (
+        <CalendarSection
+          projectId={projectId}
+          episodes={episodes}
+          accounts={accounts}
+          publications={publications}
+          submitting={submitting}
+          setSubmitting={setSubmitting}
+          onChanged={async () => {
+            await reload();
           }}
           onError={(msg) => setFormError(msg)}
         />
@@ -1281,7 +1309,13 @@ function SocialAccountForm(props: {
         <input
           value={externalAccountId}
           onChange={(e) => setExternalAccountId(e.target.value)}
-          placeholder="channel / page id"
+          placeholder={
+            platform === "INSTAGRAM"
+              ? "IG User ID (Graph) — obrigatório para Reels"
+              : platform === "TIKTOK"
+                ? "open_id (opcional)"
+                : "channel / page id"
+          }
           disabled={submitting}
         />
       </label>
@@ -1338,5 +1372,338 @@ function SocialAccountForm(props: {
         </button>
       </div>
     </form>
+  );
+}
+
+const PUBLICATION_STATUS_LABEL: Record<PublicationStatus, string> = {
+  DRAFT: "Rascunho",
+  SCHEDULED: "Agendado",
+  PUBLISHING: "A publicar…",
+  PUBLISHED: "Publicado",
+  FAILED: "Falhou",
+  CANCELLED: "Cancelado",
+  MANUAL_REQUIRED: "Upload manual",
+};
+
+function toLocalInputValue(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function CalendarSection(props: {
+  projectId: string;
+  episodes: Episode[];
+  accounts: SocialAccount[];
+  publications: ScheduledPublication[];
+  submitting: boolean;
+  setSubmitting: (v: boolean) => void;
+  onChanged: () => Promise<void>;
+  onError: (msg: string) => void;
+}) {
+  const {
+    projectId,
+    episodes,
+    accounts,
+    publications,
+    submitting,
+    setSubmitting,
+    onChanged,
+    onError,
+  } = props;
+
+  const [showWizard, setShowWizard] = useState(false);
+  const [episodeId, setEpisodeId] = useState("");
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  const [captions, setCaptions] = useState<Record<string, string>>({});
+  const [times, setTimes] = useState<Record<string, string>>({});
+
+  const publishableAccounts = accounts.filter((a) =>
+    ["TIKTOK", "INSTAGRAM", "KWAI"].includes(a.platform),
+  );
+
+  function toggleAccount(id: string) {
+    setSelectedAccountIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      const account = accounts.find((a) => a.id === id);
+      const defaultTime = toLocalInputValue(new Date(Date.now() + 5 * 60_000));
+      setTimes((t) => ({ ...t, [id]: t[id] ?? defaultTime }));
+      setCaptions((c) => ({
+        ...c,
+        [id]: c[id] ?? episodes.find((e) => e.id === episodeId)?.hook ?? "",
+      }));
+      if (account?.platform === "KWAI") {
+        /* UX note shown below */
+      }
+      return [...prev, id];
+    });
+  }
+
+  async function onSchedule(event: FormEvent) {
+    event.preventDefault();
+    onError("");
+    if (!episodeId) {
+      onError("Seleciona um conteúdo.");
+      return;
+    }
+    if (selectedAccountIds.length === 0) {
+      onError("Seleciona pelo menos uma conta.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await createSchedule(projectId, {
+        episodeId,
+        targets: selectedAccountIds.map((socialAccountId) => ({
+          socialAccountId,
+          scheduledAt: new Date(times[socialAccountId] || Date.now()).toISOString(),
+          caption: captions[socialAccountId]?.trim() || undefined,
+        })),
+      });
+      setShowWizard(false);
+      setSelectedAccountIds([]);
+      setEpisodeId("");
+      await onChanged();
+    } catch (err) {
+      onError(errMessage(err, "Não foi possível agendar."));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function runAction(
+    label: string,
+    fn: () => Promise<unknown>,
+  ): Promise<void> {
+    onError("");
+    setSubmitting(true);
+    try {
+      await fn();
+      await onChanged();
+    } catch (err) {
+      onError(errMessage(err, `Falha: ${label}`));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="section" aria-labelledby="calendar-heading">
+      <div className="section-head">
+        <h2 id="calendar-heading">Calendário</h2>
+        <button
+          type="button"
+          className="btn"
+          disabled={submitting || episodes.length === 0}
+          onClick={() => {
+            onError("");
+            setShowWizard((v) => !v);
+          }}
+        >
+          {showWizard ? "Fechar" : "Agendar publicação"}
+        </button>
+      </div>
+
+      <p className="muted">
+        Escolhe conteúdo → redes → legendas → horários. O scheduler na API faz claim
+        atómico. Kwai fica sempre em upload manual (sem API pública BR).
+      </p>
+
+      {showWizard && (
+        <form className="stack-form stack-form--inset" onSubmit={onSchedule}>
+          <label className="field">
+            <span>Conteúdo</span>
+            <select
+              required
+              value={episodeId}
+              onChange={(e) => setEpisodeId(e.target.value)}
+              disabled={submitting}
+            >
+              <option value="">— selecionar —</option>
+              {episodes.map((ep) => (
+                <option key={ep.id} value={ep.id}>
+                  {ep.title} ({ep.contentKind}
+                  {ep.mediaCount ? `, ${ep.mediaCount} ficheiros` : ", sem mídia"})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <fieldset className="cred-fieldset">
+            <legend>Plataformas</legend>
+            {publishableAccounts.length === 0 ? (
+              <p className="muted small">
+                Vincula TikTok, Instagram ou Kwai em Contas sociais primeiro.
+              </p>
+            ) : (
+              publishableAccounts.map((account) => {
+                const checked = selectedAccountIds.includes(account.id);
+                return (
+                  <div key={account.id} className="schedule-target">
+                    <label className="check-row">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={submitting}
+                        onChange={() => toggleAccount(account.id)}
+                      />
+                      <span>
+                        {account.platform} · {account.displayName}
+                        {account.platform === "KWAI" ? " (manual)" : ""}
+                      </span>
+                    </label>
+                    {checked && (
+                      <>
+                        {account.platform === "KWAI" && (
+                          <p className="muted small">
+                            Kwai: o Hub gera checklist; publicas no app e marcas como
+                            publicado.
+                          </p>
+                        )}
+                        <label className="field">
+                          <span>Horário</span>
+                          <input
+                            type="datetime-local"
+                            required
+                            value={times[account.id] ?? ""}
+                            onChange={(e) =>
+                              setTimes((prev) => ({
+                                ...prev,
+                                [account.id]: e.target.value,
+                              }))
+                            }
+                            disabled={submitting}
+                          />
+                        </label>
+                        <label className="field">
+                          <span>Legenda</span>
+                          <textarea
+                            rows={2}
+                            value={captions[account.id] ?? ""}
+                            onChange={(e) =>
+                              setCaptions((prev) => ({
+                                ...prev,
+                                [account.id]: e.target.value,
+                              }))
+                            }
+                            disabled={submitting}
+                          />
+                        </label>
+                      </>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </fieldset>
+
+          <button
+            type="submit"
+            className="btn"
+            disabled={submitting || selectedAccountIds.length === 0 || !episodeId}
+          >
+            {submitting ? "A agendar…" : "Rever e agendar"}
+          </button>
+        </form>
+      )}
+
+      {publications.length === 0 ? (
+        <p className="muted empty">Ainda não há agendamentos.</p>
+      ) : (
+        <ul className="pub-list">
+          {publications.map((pub) => {
+            const episode = episodes.find((e) => e.id === pub.episodeId);
+            const account = accounts.find((a) => a.id === pub.socialAccountId);
+            return (
+              <li key={pub.id} className="pub-row">
+                <div className="pub-main">
+                  <span className={`pub-status pub-status--${pub.status.toLowerCase()}`}>
+                    {PUBLICATION_STATUS_LABEL[pub.status]}
+                  </span>
+                  <strong>
+                    {pub.platform}
+                    {account ? ` · ${account.displayName}` : ""}
+                  </strong>
+                  <span className="muted small">
+                    {episode?.title ?? pub.episodeId} ·{" "}
+                    {new Date(pub.scheduledAt).toLocaleString()}
+                  </span>
+                  {pub.errorMessage && (
+                    <p className="bad small" role="alert">
+                      {pub.errorMessage}
+                    </p>
+                  )}
+                  {pub.checklist && pub.checklist.length > 0 && (
+                    <ol className="checklist">
+                      {pub.checklist.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ol>
+                  )}
+                  {pub.externalPostId && (
+                    <p className="muted small">ID externo: {pub.externalPostId}</p>
+                  )}
+                </div>
+                <div className="pub-actions">
+                  {(pub.status === "SCHEDULED" || pub.status === "FAILED") && (
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      disabled={submitting}
+                      onClick={() =>
+                        void runAction("publicar agora", () =>
+                          publishNow(projectId, pub.id),
+                        )
+                      }
+                    >
+                      Publicar agora
+                    </button>
+                  )}
+                  {(pub.status === "FAILED" || pub.status === "MANUAL_REQUIRED") && (
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      disabled={submitting}
+                      onClick={() =>
+                        void runAction("retry", () => retryPublication(projectId, pub.id))
+                      }
+                    >
+                      Retry
+                    </button>
+                  )}
+                  {pub.status === "MANUAL_REQUIRED" && (
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={submitting}
+                      onClick={() =>
+                        void runAction("marcar publicado", () =>
+                          markPublished(projectId, pub.id),
+                        )
+                      }
+                    >
+                      Marquei como publicado
+                    </button>
+                  )}
+                  {pub.status === "SCHEDULED" && (
+                    <button
+                      type="button"
+                      className="btn btn--danger-ghost"
+                      disabled={submitting}
+                      onClick={() =>
+                        void runAction("cancelar", () =>
+                          cancelPublication(projectId, pub.id),
+                        )
+                      }
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
