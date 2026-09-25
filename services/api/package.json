@@ -17,6 +17,7 @@
     "@creator-hub/shared-types": "workspace:*",
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.0.1",
+    "@fastify/multipart": "^10.1.2",
     "argon2": "^0.43.0",
     "drizzle-orm": "^0.44.2",
     "fastify": "^5.3.3",
@@ -26,6 +27,7 @@
     "zod": "^3.25.67"
   },
   "devDependencies": {
+    "@types/busboy": "^1.5.4",
     "@types/node": "^22.15.30",
     "@types/pg": "^8.15.4",
     "drizzle-kit": "^0.31.1",

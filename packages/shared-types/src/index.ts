@@ -2,6 +2,8 @@ export type UserId = string & { readonly __brand: "UserId" };
 export type WorkspaceId = string & { readonly __brand: "WorkspaceId" };
 export type ContentProjectId = string & { readonly __brand: "ContentProjectId" };
 export type SocialAccountId = string & { readonly __brand: "SocialAccountId" };
+export type EpisodeId = string & { readonly __brand: "EpisodeId" };
+export type MediaAssetId = string & { readonly __brand: "MediaAssetId" };
 
 export type ProjectType =
   | "CREATOR"
@@ -19,6 +21,20 @@ export type SocialPlatform =
   | "OTHER";
 
 export type SocialAccountStatus = "CONNECTED" | "NEEDS_CREDENTIALS" | "MANUAL";
+
+/** MVP content kinds: single video, single photo, or ordered image sequence. */
+export type ContentKind = "VIDEO" | "IMAGE" | "CAROUSEL";
+
+export type EpisodeStatus =
+  | "DRAFT"
+  | "SCRIPTED"
+  | "AUDIO_READY"
+  | "RENDERED"
+  | "QA_OK"
+  | "READY_TO_POST"
+  | "COMPLETED";
+
+export type MediaAssetType = "AUDIO" | "VIDEO" | "IMAGE" | "THUMBNAIL" | "OTHER";
 
 export interface User {
   id: UserId;
@@ -128,6 +144,52 @@ export interface UpdateSocialAccountRequest {
   externalAccountId?: string | null;
   /** Partial update: blank strings are ignored; omit keys to leave unchanged. */
   credentials?: SocialCredentialsInput;
+}
+
+export interface Episode {
+  id: EpisodeId;
+  projectId: ContentProjectId;
+  title: string;
+  contentKind: ContentKind;
+  status: EpisodeStatus;
+  locale: string;
+  hook: string | null;
+  description: string | null;
+  targetDurationSeconds: number | null;
+  mediaCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MediaAsset {
+  id: MediaAssetId;
+  projectId: ContentProjectId;
+  episodeId: EpisodeId | null;
+  type: MediaAssetType;
+  mime: string;
+  sizeBytes: number;
+  originalFilename: string | null;
+  sortOrder: number;
+  /** Relative download URL under the API (auth required). */
+  downloadUrl: string;
+  createdAt: string;
+}
+
+export interface EpisodesResponse {
+  episodes: Episode[];
+}
+
+export interface CreateEpisodeRequest {
+  title: string;
+  contentKind: ContentKind;
+  locale?: string;
+  hook?: string;
+  description?: string;
+  targetDurationSeconds?: number;
+}
+
+export interface MediaLibraryResponse {
+  media: MediaAsset[];
 }
 
 export interface ApiErrorBody {

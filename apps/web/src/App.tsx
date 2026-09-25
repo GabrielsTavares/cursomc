@@ -1,6 +1,9 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
 import type {
+  ContentKind,
   ContentProject,
+  Episode,
+  MediaAsset,
   ProjectType,
   SocialAccount,
   SocialAccountStatus,
@@ -10,20 +13,31 @@ import type {
 } from "@creator-hub/shared-types";
 import {
   ApiClientError,
+  UI_CONTENT_KINDS,
   UI_PROJECT_TYPES,
   apiBaseUrl,
+  createEpisode,
   createProject,
   createSocialAccount,
+  deleteEpisode,
+  deleteMediaAsset,
   deleteProject,
   deleteSocialAccount,
+  fetchEpisodeMedia,
+  fetchEpisodes,
   fetchMe,
+  fetchMediaBlobUrl,
   fetchProject,
+  fetchProjectMedia,
   fetchProjects,
   fetchSocialAccounts,
   login,
   logout,
   updateSocialAccount,
+  uploadEpisodeMedia,
 } from "./api";
+
+type ProjectTab = "overview" | "content" | "social" | "library";
 
 type Session = {
   user: User;
@@ -428,18 +442,33 @@ function ProjectDetail(props: {
   const { projectId, submitting, setSubmitting, onBack, onLogout, onDeleted } = props;
   const [project, setProject] = useState<ContentProject | null>(null);
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
+  const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [library, setLibrary] = useState<MediaAsset[]>([]);
+  const [tab, setTab] = useState<ProjectTab>("content");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [showLink, setShowLink] = useState(false);
   const [editing, setEditing] = useState<SocialAccount | null>(null);
+  const [showNewContent, setShowNewContent] = useState(false);
+  const [selectedEpisodeId, setSelectedEpisodeId] = useState<string | null>(null);
+  const [episodeMedia, setEpisodeMedia] = useState<MediaAsset[]>([]);
 
   async function reload() {
-    const [p, list] = await Promise.all([
+    const [p, list, eps, media] = await Promise.all([
       fetchProject(projectId),
       fetchSocialAccounts(projectId),
+      fetchEpisodes(projectId),
+      fetchProjectMedia(projectId),
     ]);
     setProject(p);
     setAccounts(list);
+    setEpisodes(eps);
+    setLibrary(media);
+  }
+
+  async function reloadEpisodeMedia(episodeId: string) {
+    const media = await fetchEpisodeMedia(projectId, episodeId);
+    setEpisodeMedia(media);
   }
 
   useEffect(() => {
@@ -459,9 +488,34 @@ function ProjectDetail(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
+  useEffect(() => {
+    if (!selectedEpisodeId) {
+      setEpisodeMedia([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const media = await fetchEpisodeMedia(projectId, selectedEpisodeId);
+        if (!cancelled) setEpisodeMedia(media);
+      } catch (err) {
+        if (!cancelled) {
+          setFormError(errMessage(err, "Não foi possível carregar a mídia deste conteúdo."));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, selectedEpisodeId]);
+
   async function onDeleteProject() {
     if (!project) return;
-    if (!window.confirm(`Apagar o projeto “${project.name}”? Isto remove as contas sociais.`)) {
+    if (
+      !window.confirm(
+        `Apagar o projeto “${project.name}”? Isto remove contas sociais, conteúdo e mídia.`,
+      )
+    ) {
       return;
     }
     setFormError(null);
@@ -514,8 +568,10 @@ function ProjectDetail(props: {
     );
   }
 
+  const selectedEpisode = episodes.find((e) => e.id === selectedEpisodeId) ?? null;
+
   return (
-    <main className="page page--wide">
+    <main className="page page--wide page--project">
       <header className="top">
         <div className="top-left">
           <button type="button" className="btn btn--ghost" onClick={onBack} disabled={submitting}>
@@ -533,145 +589,605 @@ function ProjectDetail(props: {
         Tipo <strong>{project.projectType}</strong> · locale {project.localeDefault}
       </p>
 
-      <section className="section" aria-labelledby="overview-heading">
-        <div className="section-head">
-          <h2 id="overview-heading">Overview</h2>
+      <nav className="tabs" aria-label="Secções do projeto">
+        {(
+          [
+            ["content", "Conteúdo"],
+            ["library", "Biblioteca"],
+            ["social", "Contas sociais"],
+            ["overview", "Overview"],
+          ] as const
+        ).map(([id, label]) => (
           <button
+            key={id}
             type="button"
-            className="btn btn--danger-ghost"
-            onClick={onDeleteProject}
-            disabled={submitting}
-          >
-            Apagar projeto
-          </button>
-        </div>
-        <p className="muted">
-          Vincula TikTok, Instagram, YouTube, Kwai e outras redes. Credenciais ficam só no
-          servidor (encriptadas). OAuth oficial virá depois — por agora cola tokens / API keys.
-        </p>
-      </section>
-
-      <section className="section" aria-labelledby="social-heading">
-        <div className="section-head">
-          <h2 id="social-heading">Contas sociais</h2>
-          <button
-            type="button"
-            className="btn"
-            disabled={submitting}
+            className={`tabs__btn${tab === id ? " tabs__btn--active" : ""}`}
             onClick={() => {
+              setTab(id);
               setFormError(null);
-              setEditing(null);
-              setShowLink((v) => !v);
             }}
           >
-            {showLink ? "Fechar" : "+ Vincular rede"}
+            {label}
           </button>
-        </div>
+        ))}
+      </nav>
 
-        {formError && (
-          <p className="bad" role="alert">
-            {formError}
+      {formError && (
+        <p className="bad" role="alert">
+          {formError}
+        </p>
+      )}
+
+      {tab === "overview" && (
+        <section className="section" aria-labelledby="overview-heading">
+          <div className="section-head">
+            <h2 id="overview-heading">Overview</h2>
+            <button
+              type="button"
+              className="btn btn--danger-ghost"
+              onClick={onDeleteProject}
+              disabled={submitting}
+            >
+              Apagar projeto
+            </button>
+          </div>
+          <p className="muted">
+            Fluxo típico: cria conteúdo → faz upload → pré-visualiza → (depois) agenda e
+            publica. Calendário e publish real ainda não estão neste MVP.
           </p>
-        )}
+          <ul className="stat-inline muted">
+            <li>{episodes.length} conteúdos</li>
+            <li>{library.length} assets na biblioteca</li>
+            <li>{accounts.length} redes</li>
+          </ul>
+        </section>
+      )}
 
-        {(showLink || editing) && (
-          <SocialAccountForm
-            key={editing?.id ?? "new"}
-            mode={editing ? "edit" : "create"}
-            initial={editing}
-            submitting={submitting}
-            onCancel={() => {
-              setShowLink(false);
-              setEditing(null);
-              setFormError(null);
-            }}
-            onSubmit={async (payload) => {
-              setFormError(null);
-              setSubmitting(true);
-              try {
-                if (editing) {
-                  await updateSocialAccount(projectId, editing.id, {
-                    displayName: payload.displayName,
-                    status: payload.status,
-                    externalAccountId: payload.externalAccountId,
-                    credentials: payload.credentials,
-                  });
-                } else {
-                  await createSocialAccount(projectId, {
-                    platform: payload.platform!,
-                    displayName: payload.displayName,
-                    status: payload.status,
-                    externalAccountId: payload.externalAccountId,
-                    credentials: payload.credentials,
-                  });
-                }
+      {tab === "content" && (
+        <ContentSection
+          projectId={projectId}
+          episodes={episodes}
+          selectedEpisode={selectedEpisode}
+          episodeMedia={episodeMedia}
+          showNewContent={showNewContent}
+          submitting={submitting}
+          setSubmitting={setSubmitting}
+          onToggleNew={() => {
+            setFormError(null);
+            setShowNewContent((v) => !v);
+          }}
+          onSelectEpisode={(id) => {
+            setSelectedEpisodeId(id);
+            setFormError(null);
+          }}
+          onCreated={async (ep) => {
+            setShowNewContent(false);
+            await reload();
+            setSelectedEpisodeId(ep.id);
+          }}
+          onDeleted={async () => {
+            setSelectedEpisodeId(null);
+            await reload();
+          }}
+          onMediaChanged={async () => {
+            await reload();
+            if (selectedEpisodeId) await reloadEpisodeMedia(selectedEpisodeId);
+          }}
+          onError={(msg) => setFormError(msg)}
+        />
+      )}
+
+      {tab === "library" && (
+        <LibrarySection
+          projectId={projectId}
+          media={library}
+          submitting={submitting}
+          setSubmitting={setSubmitting}
+          onChanged={async () => {
+            await reload();
+            if (selectedEpisodeId) await reloadEpisodeMedia(selectedEpisodeId);
+          }}
+          onError={(msg) => setFormError(msg)}
+        />
+      )}
+
+      {tab === "social" && (
+        <section className="section" aria-labelledby="social-heading">
+          <div className="section-head">
+            <h2 id="social-heading">Contas sociais</h2>
+            <button
+              type="button"
+              className="btn"
+              disabled={submitting}
+              onClick={() => {
+                setFormError(null);
+                setEditing(null);
+                setShowLink((v) => !v);
+              }}
+            >
+              {showLink ? "Fechar" : "+ Vincular rede"}
+            </button>
+          </div>
+
+          <p className="muted">
+            Credenciais ficam só no servidor (encriptadas). OAuth oficial virá depois — por agora
+            cola tokens / API keys.
+          </p>
+
+          {(showLink || editing) && (
+            <SocialAccountForm
+              key={editing?.id ?? "new"}
+              mode={editing ? "edit" : "create"}
+              initial={editing}
+              submitting={submitting}
+              onCancel={() => {
                 setShowLink(false);
                 setEditing(null);
-                await reload();
-              } catch (err) {
-                setFormError(
-                  errMessage(
-                    err,
-                    editing
-                      ? "Não foi possível atualizar a conta."
-                      : "Não foi possível vincular a rede.",
-                  ),
-                );
-              } finally {
-                setSubmitting(false);
-              }
-            }}
-          />
-        )}
+                setFormError(null);
+              }}
+              onSubmit={async (payload) => {
+                setFormError(null);
+                setSubmitting(true);
+                try {
+                  if (editing) {
+                    await updateSocialAccount(projectId, editing.id, {
+                      displayName: payload.displayName,
+                      status: payload.status,
+                      externalAccountId: payload.externalAccountId,
+                      credentials: payload.credentials,
+                    });
+                  } else {
+                    await createSocialAccount(projectId, {
+                      platform: payload.platform!,
+                      displayName: payload.displayName,
+                      status: payload.status,
+                      externalAccountId: payload.externalAccountId,
+                      credentials: payload.credentials,
+                    });
+                  }
+                  setShowLink(false);
+                  setEditing(null);
+                  await reload();
+                } catch (err) {
+                  setFormError(
+                    errMessage(
+                      err,
+                      editing
+                        ? "Não foi possível atualizar a conta."
+                        : "Não foi possível vincular a rede.",
+                    ),
+                  );
+                } finally {
+                  setSubmitting(false);
+                }
+              }}
+            />
+          )}
 
-        {accounts.length === 0 ? (
-          <p className="muted empty">Nenhuma rede vinculada ainda.</p>
-        ) : (
-          <ul className="account-list">
-            {accounts.map((account) => (
-              <li key={account.id} className="account-row">
-                <div>
-                  <p className="account-name">{account.displayName}</p>
-                  <p className="account-meta">
-                    {PLATFORMS.find((p) => p.value === account.platform)?.label ??
-                      account.platform}{" "}
-                    ·{" "}
-                    <span className={`status status--${account.status.toLowerCase()}`}>
-                      {STATUS_LABEL[account.status]}
-                    </span>
-                  </p>
-                  <p className="account-masks muted">
-                    {summarizeMasks(account)}
-                  </p>
-                </div>
-                <div className="account-actions">
-                  <button
-                    type="button"
-                    className="btn btn--ghost"
-                    disabled={submitting}
-                    onClick={() => {
-                      setShowLink(false);
-                      setEditing(account);
-                      setFormError(null);
-                    }}
-                  >
-                    Editar
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--danger-ghost"
-                    disabled={submitting}
-                    onClick={() => void onDeleteAccount(account)}
-                  >
-                    Remover
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+          {accounts.length === 0 ? (
+            <p className="muted empty">Nenhuma rede vinculada ainda.</p>
+          ) : (
+            <ul className="account-list">
+              {accounts.map((account) => (
+                <li key={account.id} className="account-row">
+                  <div>
+                    <p className="account-name">{account.displayName}</p>
+                    <p className="account-meta">
+                      {PLATFORMS.find((p) => p.value === account.platform)?.label ??
+                        account.platform}{" "}
+                      ·{" "}
+                      <span className={`status status--${account.status.toLowerCase()}`}>
+                        {STATUS_LABEL[account.status]}
+                      </span>
+                    </p>
+                    <p className="account-masks muted">{summarizeMasks(account)}</p>
+                  </div>
+                  <div className="account-actions">
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      disabled={submitting}
+                      onClick={() => {
+                        setShowLink(false);
+                        setEditing(account);
+                        setFormError(null);
+                      }}
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--danger-ghost"
+                      disabled={submitting}
+                      onClick={() => void onDeleteAccount(account)}
+                    >
+                      Remover
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
     </main>
+  );
+}
+
+const KIND_LABEL: Record<ContentKind, string> = {
+  VIDEO: "Vídeo",
+  IMAGE: "Foto",
+  CAROUSEL: "Carrossel",
+};
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function ContentSection(props: {
+  projectId: string;
+  episodes: Episode[];
+  selectedEpisode: Episode | null;
+  episodeMedia: MediaAsset[];
+  showNewContent: boolean;
+  submitting: boolean;
+  setSubmitting: (v: boolean) => void;
+  onToggleNew: () => void;
+  onSelectEpisode: (id: string | null) => void;
+  onCreated: (ep: Episode) => Promise<void>;
+  onDeleted: () => Promise<void>;
+  onMediaChanged: () => Promise<void>;
+  onError: (msg: string) => void;
+}) {
+  const {
+    projectId,
+    episodes,
+    selectedEpisode,
+    episodeMedia,
+    showNewContent,
+    submitting,
+    setSubmitting,
+    onToggleNew,
+    onSelectEpisode,
+    onCreated,
+    onDeleted,
+    onMediaChanged,
+    onError,
+  } = props;
+  const [title, setTitle] = useState("");
+  const [kind, setKind] = useState<ContentKind>("VIDEO");
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleCreate(event: FormEvent) {
+    event.preventDefault();
+    setSubmitting(true);
+    try {
+      const ep = await createEpisode(projectId, {
+        title: title.trim(),
+        contentKind: kind,
+      });
+      setTitle("");
+      setKind("VIDEO");
+      await onCreated(ep);
+    } catch (err) {
+      onError(errMessage(err, "Não foi possível criar o conteúdo."));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleDeleteEpisode(ep: Episode) {
+    if (!window.confirm(`Apagar “${ep.title}” e a mídia associada?`)) return;
+    setSubmitting(true);
+    try {
+      await deleteEpisode(projectId, ep.id);
+      await onDeleted();
+    } catch (err) {
+      onError(errMessage(err, "Não foi possível apagar o conteúdo."));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleFiles(files: FileList | File[]) {
+    if (!selectedEpisode) return;
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    setSubmitting(true);
+    setUploadPct(0);
+    try {
+      for (const file of list) {
+        await uploadEpisodeMedia(projectId, selectedEpisode.id, file, setUploadPct);
+        if (selectedEpisode.contentKind !== "CAROUSEL") break;
+      }
+      await onMediaChanged();
+    } catch (err) {
+      onError(errMessage(err, "Upload falhou. Verifica o formato e o tamanho."));
+    } finally {
+      setSubmitting(false);
+      setUploadPct(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  function onDrop(event: DragEvent) {
+    event.preventDefault();
+    setDragOver(false);
+    if (submitting || !selectedEpisode) return;
+    void handleFiles(event.dataTransfer.files);
+  }
+
+  const accept =
+    selectedEpisode?.contentKind === "VIDEO"
+      ? "video/mp4,video/webm"
+      : "image/jpeg,image/png,image/webp";
+
+  return (
+    <section className="section" aria-labelledby="content-heading">
+      <div className="section-head">
+        <h2 id="content-heading">Conteúdo</h2>
+        <button type="button" className="btn" disabled={submitting} onClick={onToggleNew}>
+          {showNewContent ? "Fechar" : "+ Novo conteúdo"}
+        </button>
+      </div>
+
+      {showNewContent && (
+        <form className="stack-form stack-form--inset" onSubmit={(e) => void handleCreate(e)}>
+          <label className="field">
+            <span>Título</span>
+            <input
+              required
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Ex.: Rival nasceu da água"
+              disabled={submitting}
+            />
+          </label>
+          <label className="field">
+            <span>Tipo</span>
+            <select
+              value={kind}
+              onChange={(e) => setKind(e.target.value as ContentKind)}
+              disabled={submitting}
+            >
+              {UI_CONTENT_KINDS.map((k) => (
+                <option key={k.value} value={k.value}>
+                  {k.label} — {k.hint}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="form-actions">
+            <button type="button" className="btn btn--ghost" onClick={onToggleNew} disabled={submitting}>
+              Cancelar
+            </button>
+            <button type="submit" className="btn" disabled={submitting || !title.trim()}>
+              {submitting ? "A criar…" : "Criar rascunho"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {episodes.length === 0 ? (
+        <p className="muted empty">Ainda não há conteúdo. Cria um vídeo, foto ou carrossel.</p>
+      ) : (
+        <ul className="account-list">
+          {episodes.map((ep) => (
+            <li key={ep.id} className={`account-row${selectedEpisode?.id === ep.id ? " account-row--selected" : ""}`}>
+              <button
+                type="button"
+                className="content-pick"
+                disabled={submitting}
+                onClick={() =>
+                  onSelectEpisode(selectedEpisode?.id === ep.id ? null : ep.id)
+                }
+              >
+                <p className="account-name">{ep.title}</p>
+                <p className="account-meta">
+                  {KIND_LABEL[ep.contentKind]} · {ep.status}
+                  {ep.mediaCount > 0 ? ` · ${ep.mediaCount} ficheiro(s)` : " · sem mídia"}
+                </p>
+              </button>
+              <div className="account-actions">
+                <button
+                  type="button"
+                  className="btn btn--danger-ghost"
+                  disabled={submitting}
+                  onClick={() => void handleDeleteEpisode(ep)}
+                >
+                  Apagar
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {selectedEpisode && (
+        <div className="upload-panel">
+          <h3 className="upload-panel__title">Upload — {selectedEpisode.title}</h3>
+          <p className="muted small">
+            {selectedEpisode.contentKind === "CAROUSEL"
+              ? "Arrasta várias imagens (ordem de envio = ordem do carrossel)."
+              : selectedEpisode.contentKind === "VIDEO"
+                ? "Envia um vídeo mp4 ou webm. Pré-visualização 9:16."
+                : "Envia uma foto jpg, png ou webp. Pré-visualização 9:16."}
+          </p>
+
+          <div
+            className={`dropzone${dragOver ? " dropzone--active" : ""}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={onDrop}
+          >
+            <p>Arrasta ficheiros para aqui</p>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={submitting}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Escolher ficheiro
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={accept}
+              multiple={selectedEpisode.contentKind === "CAROUSEL"}
+              hidden
+              onChange={(e) => {
+                if (e.target.files) void handleFiles(e.target.files);
+              }}
+            />
+          </div>
+
+          {uploadPct !== null && (
+            <div className="progress" aria-label="Progresso do upload">
+              <div className="progress__bar" style={{ width: `${uploadPct}%` }} />
+              <span className="progress__label">{uploadPct}%</span>
+            </div>
+          )}
+
+          {episodeMedia.length === 0 ? (
+            <p className="muted empty">Sem ficheiros neste conteúdo.</p>
+          ) : (
+            <div className="preview-grid">
+              {episodeMedia.map((asset) => (
+                <MediaPreviewCard
+                  key={asset.id}
+                  asset={asset}
+                  submitting={submitting}
+                  onDelete={async () => {
+                    if (!window.confirm("Apagar este ficheiro?")) return;
+                    setSubmitting(true);
+                    try {
+                      await deleteMediaAsset(projectId, asset.id);
+                      await onMediaChanged();
+                    } catch (err) {
+                      onError(errMessage(err, "Não foi possível apagar a mídia."));
+                    } finally {
+                      setSubmitting(false);
+                    }
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function LibrarySection(props: {
+  projectId: string;
+  media: MediaAsset[];
+  submitting: boolean;
+  setSubmitting: (v: boolean) => void;
+  onChanged: () => Promise<void>;
+  onError: (msg: string) => void;
+}) {
+  const { projectId, media, submitting, setSubmitting, onChanged, onError } = props;
+
+  return (
+    <section className="section" aria-labelledby="library-heading">
+      <div className="section-head">
+        <h2 id="library-heading">Biblioteca</h2>
+      </div>
+      <p className="muted">Assets do projeto (imagens e vídeos já enviados).</p>
+      {media.length === 0 ? (
+        <p className="muted empty">Biblioteca vazia — faz upload num conteúdo.</p>
+      ) : (
+        <div className="preview-grid">
+          {media.map((asset) => (
+            <MediaPreviewCard
+              key={asset.id}
+              asset={asset}
+              submitting={submitting}
+              showMeta
+              onDelete={async () => {
+                if (!window.confirm("Apagar este asset da biblioteca?")) return;
+                setSubmitting(true);
+                try {
+                  await deleteMediaAsset(projectId, asset.id);
+                  await onChanged();
+                } catch (err) {
+                  onError(errMessage(err, "Não foi possível apagar o asset."));
+                } finally {
+                  setSubmitting(false);
+                }
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MediaPreviewCard(props: {
+  asset: MediaAsset;
+  submitting: boolean;
+  showMeta?: boolean;
+  onDelete: () => Promise<void>;
+}) {
+  const { asset, submitting, showMeta, onDelete } = props;
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+    (async () => {
+      try {
+        objectUrl = await fetchMediaBlobUrl(asset.downloadUrl);
+        if (active) setUrl(objectUrl);
+      } catch {
+        if (active) setUrl(null);
+      }
+    })();
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [asset.downloadUrl]);
+
+  const isVideo = asset.type === "VIDEO" || asset.mime.startsWith("video/");
+
+  return (
+    <article className="preview-card">
+      <div className="preview-frame">
+        {url ? (
+          isVideo ? (
+            <video src={url} controls playsInline />
+          ) : (
+            <img src={url} alt={asset.originalFilename ?? "Pré-visualização"} />
+          )
+        ) : (
+          <p className="muted small">A carregar preview…</p>
+        )}
+      </div>
+      {showMeta && (
+        <p className="preview-meta muted small">
+          {asset.type} · {formatBytes(asset.sizeBytes)}
+          {asset.originalFilename ? ` · ${asset.originalFilename}` : ""}
+        </p>
+      )}
+      <button
+        type="button"
+        className="btn btn--danger-ghost"
+        disabled={submitting}
+        onClick={() => void onDelete()}
+      >
+        Apagar
+      </button>
+    </article>
   );
 }
 

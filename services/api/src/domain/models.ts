@@ -1,5 +1,10 @@
 import type {
+  ContentKind,
   ContentProject,
+  Episode,
+  EpisodeStatus,
+  MediaAsset,
+  MediaAssetType,
   ProjectType,
   SocialAccount,
   SocialAccountStatus,
@@ -45,6 +50,34 @@ export interface SocialAccountRecord {
   externalAccountId: string | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface EpisodeRecord {
+  id: string;
+  projectId: string;
+  title: string;
+  contentKind: ContentKind;
+  status: EpisodeStatus;
+  locale: string;
+  hook: string | null;
+  description: string | null;
+  targetDurationSeconds: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface MediaAssetRecord {
+  id: string;
+  projectId: string;
+  episodeId: string | null;
+  type: MediaAssetType;
+  storageKey: string;
+  mime: string;
+  sizeBytes: number;
+  checksum: string | null;
+  originalFilename: string | null;
+  sortOrder: number;
+  createdAt: Date;
 }
 
 export function toPublicUser(user: UserRecord): User {
@@ -107,6 +140,42 @@ export function toPublicSocialAccount(
   };
 }
 
+export function toPublicEpisode(episode: EpisodeRecord, mediaCount = 0): Episode {
+  return {
+    id: episode.id as Episode["id"],
+    projectId: episode.projectId as Episode["projectId"],
+    title: episode.title,
+    contentKind: episode.contentKind,
+    status: episode.status,
+    locale: episode.locale,
+    hook: episode.hook,
+    description: episode.description,
+    targetDurationSeconds: episode.targetDurationSeconds,
+    mediaCount,
+    createdAt: episode.createdAt.toISOString(),
+    updatedAt: episode.updatedAt.toISOString(),
+  };
+}
+
+export function mediaDownloadPath(projectId: string, mediaId: string): string {
+  return `/api/v1/projects/${projectId}/media/${mediaId}/file`;
+}
+
+export function toPublicMediaAsset(asset: MediaAssetRecord): MediaAsset {
+  return {
+    id: asset.id as MediaAsset["id"],
+    projectId: asset.projectId as MediaAsset["projectId"],
+    episodeId: (asset.episodeId ?? null) as MediaAsset["episodeId"],
+    type: asset.type,
+    mime: asset.mime,
+    sizeBytes: asset.sizeBytes,
+    originalFilename: asset.originalFilename,
+    sortOrder: asset.sortOrder,
+    downloadUrl: mediaDownloadPath(asset.projectId, asset.id),
+    createdAt: asset.createdAt.toISOString(),
+  };
+}
+
 export function hasAnyCredential(secrets: SocialCredentialSecrets | null | undefined): boolean {
   if (!secrets) return false;
   return Boolean(
@@ -164,3 +233,31 @@ export const SOCIAL_ACCOUNT_STATUSES: SocialAccountStatus[] = [
   "NEEDS_CREDENTIALS",
   "MANUAL",
 ];
+
+export const CONTENT_KINDS: ContentKind[] = ["VIDEO", "IMAGE", "CAROUSEL"];
+
+export const EPISODE_STATUSES: EpisodeStatus[] = [
+  "DRAFT",
+  "SCRIPTED",
+  "AUDIO_READY",
+  "RENDERED",
+  "QA_OK",
+  "READY_TO_POST",
+  "COMPLETED",
+];
+
+export const MEDIA_ASSET_TYPES: MediaAssetType[] = [
+  "AUDIO",
+  "VIDEO",
+  "IMAGE",
+  "THUMBNAIL",
+  "OTHER",
+];
+
+export const ALLOWED_IMAGE_MIMES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+export const ALLOWED_VIDEO_MIMES = new Set(["video/mp4", "video/webm"]);

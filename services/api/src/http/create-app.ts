@@ -4,6 +4,8 @@ import cookie from "@fastify/cookie";
 import type { AppConfig } from "../infrastructure/config.js";
 import { createDb } from "../infrastructure/db/client.js";
 import {
+  DrizzleEpisodeRepository,
+  DrizzleMediaAssetRepository,
   DrizzleProjectRepository,
   DrizzleSocialAccountRepository,
   DrizzleUserRepository,
@@ -14,6 +16,7 @@ import {
 } from "../infrastructure/auth/security.js";
 import { AesGcmCredentialVault } from "../infrastructure/security/credential-vault.js";
 import { ManualPublisher } from "../infrastructure/publishers/manual-publisher.js";
+import { LocalMediaStorage } from "../infrastructure/media/local-media-storage.js";
 import { GetCurrentUserUseCase, LoginUseCase } from "../application/auth-use-cases.js";
 import {
   CreateProjectUseCase,
@@ -29,6 +32,16 @@ import {
   UpdateSocialAccountUseCase,
 } from "../application/social-account-use-cases.js";
 import {
+  CreateEpisodeUseCase,
+  DeleteEpisodeUseCase,
+  DeleteMediaAssetUseCase,
+  GetMediaFileUseCase,
+  ListEpisodeMediaUseCase,
+  ListEpisodesUseCase,
+  ListProjectMediaUseCase,
+  UploadEpisodeMediaUseCase,
+} from "../application/content-use-cases.js";
+import {
   DomainError,
   NotFoundError,
   UnauthorizedError,
@@ -37,6 +50,7 @@ import {
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerProjectRoutes } from "./routes/projects.js";
+import { registerContentRoutes } from "./routes/content.js";
 import type { SocialPublisher, TokenService } from "../application/ports.js";
 
 export interface AppServices {
@@ -54,6 +68,14 @@ export interface AppServices {
   createSocialAccount: CreateSocialAccountUseCase;
   updateSocialAccount: UpdateSocialAccountUseCase;
   deleteSocialAccount: DeleteSocialAccountUseCase;
+  listEpisodes: ListEpisodesUseCase;
+  createEpisode: CreateEpisodeUseCase;
+  deleteEpisode: DeleteEpisodeUseCase;
+  listProjectMedia: ListProjectMediaUseCase;
+  listEpisodeMedia: ListEpisodeMediaUseCase;
+  uploadEpisodeMedia: UploadEpisodeMediaUseCase;
+  deleteMediaAsset: DeleteMediaAssetUseCase;
+  getMediaFile: GetMediaFileUseCase;
   manualPublisher: SocialPublisher;
 }
 
@@ -64,9 +86,16 @@ export async function createApp(config: AppConfig) {
   const projects = new DrizzleProjectRepository(db);
   const vault = new AesGcmCredentialVault(config.CREDENTIALS_ENCRYPTION_KEY);
   const socialAccounts = new DrizzleSocialAccountRepository(db, vault);
+  const episodes = new DrizzleEpisodeRepository(db);
+  const mediaAssets = new DrizzleMediaAssetRepository(db);
+  const mediaStorage = new LocalMediaStorage(config.MEDIA_ROOT);
   const hasher = new Argon2PasswordHasher();
   const tokens = new JoseJwtTokenService(config.JWT_SECRET, config.JWT_EXPIRES_IN);
   const manualPublisher = new ManualPublisher();
+  const uploadLimits = {
+    maxImageBytes: config.MEDIA_MAX_IMAGE_BYTES,
+    maxVideoBytes: config.MEDIA_MAX_VIDEO_BYTES,
+  };
 
   const services: AppServices = {
     config,
@@ -83,6 +112,20 @@ export async function createApp(config: AppConfig) {
     createSocialAccount: new CreateSocialAccountUseCase(projects, socialAccounts),
     updateSocialAccount: new UpdateSocialAccountUseCase(projects, socialAccounts),
     deleteSocialAccount: new DeleteSocialAccountUseCase(projects, socialAccounts),
+    listEpisodes: new ListEpisodesUseCase(projects, episodes),
+    createEpisode: new CreateEpisodeUseCase(projects, episodes),
+    deleteEpisode: new DeleteEpisodeUseCase(projects, episodes, mediaAssets, mediaStorage),
+    listProjectMedia: new ListProjectMediaUseCase(projects, mediaAssets),
+    listEpisodeMedia: new ListEpisodeMediaUseCase(projects, episodes, mediaAssets),
+    uploadEpisodeMedia: new UploadEpisodeMediaUseCase(
+      projects,
+      episodes,
+      mediaAssets,
+      mediaStorage,
+      uploadLimits,
+    ),
+    deleteMediaAsset: new DeleteMediaAssetUseCase(projects, mediaAssets, mediaStorage),
+    getMediaFile: new GetMediaFileUseCase(projects, mediaAssets, mediaStorage),
     manualPublisher,
   };
 
@@ -147,6 +190,7 @@ export async function createApp(config: AppConfig) {
   await registerHealthRoutes(app, services);
   await registerAuthRoutes(app, services);
   await registerProjectRoutes(app, services);
+  await registerContentRoutes(app, services);
 
   return { app, services, pool };
 }

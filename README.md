@@ -1,6 +1,6 @@
 # Creator Hub
 
-Phase 1 **Foundation** of the Creator Hub monorepo (Node.js + TypeScript + Fastify), expanded with **projects + social accounts** in the web UI.
+Phase 1 **Foundation** of the Creator Hub monorepo (Node.js + TypeScript + Fastify), with **projects**, **social accounts**, and **content / media upload** (Episode + MediaAsset).
 
 > Full product design lives in the Cursor Agent Store (`creator-hub-especificacao-mestre.md`, `creator-hub-system-design.md`, `creator-hub-adrs.md`) — not duplicated here.
 
@@ -17,11 +17,12 @@ This repository also contains the legacy Spring study project (`cursomc`); Creat
 | **Argon2** | Password hashing |
 | **Postgres 16** | Source of truth via Docker Compose |
 | **AES-256-GCM vault** | MVP storage for social tokens/API keys (`CREDENTIALS_ENCRYPTION_KEY`) |
+| **Local MediaStorage** | Multipart upload to Compose volume (`MEDIA_ROOT`) — S3/R2 later |
 
 ## Layout
 
 ```text
-apps/web                 # Vite + React — login, projetos, contas sociais
+apps/web                 # Vite + React — login, projetos, conteúdo, contas sociais
 services/api             # Fastify hexagonal API
 packages/shared-types    # Shared TS types
 docker-compose.yml       # postgres + api (+ web profile)
@@ -41,7 +42,7 @@ docker compose up --build -d
 
 Media files persist in the `media_data` Compose volume (`MEDIA_ROOT=/data/media`).
 
-### Como logar, criar projeto e vincular rede
+### Como logar, criar projeto, conteúdo e upload
 
 1. Suba API + Postgres (+ web):
 
@@ -51,10 +52,10 @@ Media files persist in the `media_data` Compose volume (`MEDIA_ROOT=/data/media`
 
 2. Abra `http://localhost:5173/`
 3. Entre com o seed: **email** `admin@creator.local` / **senha** `changeme123`
-4. Em **Projetos**, clique **Novo projeto** (nome + tipo: Creator / Affiliate / Brand / Other)
-5. Abra o projeto → **Contas sociais** → **+ Vincular rede**
-6. Escolha plataforma (TikTok, Instagram, YouTube, Kwai, Facebook, Outra), nome de exibição e cole tokens/API keys
-7. Guarde — a API encripta as credenciais; a UI só mostra máscaras (`****` + últimos 4)
+4. Em **Projetos**, clique **Novo projeto**
+5. Abra o projeto → aba **Conteúdo** → **+ Novo conteúdo** (vídeo / foto / carrossel)
+6. Seleciona o item → **Upload** (drag-drop ou file picker) → preview 9:16
+7. Aba **Biblioteca** lista assets do projeto; **Contas sociais** continua disponível
 
 A web no Compose é buildada com `VITE_API_URL=http://localhost:3000` (URL que o **browser no host** alcança). A API aceita CORS de `http://localhost:5173` com credentials; o login guarda o JWT (`accessToken`) e também recebe o cookie httpOnly `creator_hub_session`.
 
@@ -70,15 +71,23 @@ TOKEN=$(curl -s -X POST http://localhost:3000/api/v1/auth/login \
   -d '{"email":"admin@creator.local","password":"changeme123"}' | jq -r .accessToken)
 
 # criar projeto
-curl -s -X POST http://localhost:3000/api/v1/projects \
+PROJECT_ID=$(curl -s -X POST http://localhost:3000/api/v1/projects \
   -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"name":"Demo","projectType":"CREATOR"}' | jq .
+  -d '{"name":"Demo","projectType":"CREATOR"}' | jq -r .project.id)
 
-# vincular conta (secrets mascarados na resposta)
-PROJECT_ID=... # id do passo anterior
-curl -s -X POST "http://localhost:3000/api/v1/projects/$PROJECT_ID/social-accounts" \
+# criar conteúdo (episode)
+EPISODE_ID=$(curl -s -X POST "http://localhost:3000/api/v1/projects/$PROJECT_ID/episodes" \
   -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"platform":"TIKTOK","displayName":"tiktok_main","credentials":{"accessToken":"tok_ABCDEF1234"}}' | jq .
+  -d '{"title":"Demo foto","contentKind":"IMAGE"}' | jq -r .episode.id)
+
+# upload imagem
+curl -s -X POST "http://localhost:3000/api/v1/projects/$PROJECT_ID/episodes/$EPISODE_ID/media" \
+  -H "authorization: Bearer $TOKEN" \
+  -F "file=@./path/to/image.png;type=image/png" | jq .
+
+# listar biblioteca
+curl -s "http://localhost:3000/api/v1/projects/$PROJECT_ID/media" \
+  -H "authorization: Bearer $TOKEN" | jq .
 ```
 
 ## Local (host API + Compose Postgres)
@@ -98,7 +107,7 @@ pnpm --filter @creator-hub/web dev
 
 No Vite, `VITE_API_URL` default é `http://localhost:3000`. Se preferir same-origin, defina `VITE_API_URL=` (vazio) e o proxy em `vite.config.ts` encaminha `/api` e `/health` para a API.
 
-## API (Phase 1 + social accounts)
+## API (Phase 1 + social + content)
 
 | Method | Path | Auth |
 |--------|------|------|
@@ -110,8 +119,18 @@ No Vite, `VITE_API_URL` default é `http://localhost:3000`. Se preferir same-ori
 | GET/PATCH/DELETE | `/api/v1/projects/:id` | required |
 | GET/POST | `/api/v1/projects/:id/social-accounts` | required |
 | PATCH/DELETE | `/api/v1/projects/:id/social-accounts/:accountId` | required |
+| GET/POST | `/api/v1/projects/:id/episodes` | required |
+| DELETE | `/api/v1/projects/:id/episodes/:episodeId` | required |
+| GET/POST | `/api/v1/projects/:id/episodes/:episodeId/media` | required (POST = multipart `file`) |
+| GET | `/api/v1/projects/:id/media` | required |
+| DELETE | `/api/v1/projects/:id/media/:mediaId` | required |
+| GET | `/api/v1/projects/:id/media/:mediaId/file` | required (stream) |
 
 Auth header: `Authorization: Bearer <token>` **or** httpOnly cookie `creator_hub_session`.
+
+**Tipos de conteúdo (MVP):** `VIDEO` (1× mp4/webm), `IMAGE` (1× jpg/png/webp), `CAROUSEL` (N imagens ordenadas).
+
+**Limites:** `MEDIA_MAX_IMAGE_BYTES` / `MEDIA_MAX_VIDEO_BYTES` no `.env`. Storage keys são geradas pelo servidor (`{projectId}/{uuid}.ext`) — path traversal rejeitado.
 
 Listagens de contas sociais **nunca** devolvem secrets em claro — só máscaras (`****` + last4) e `hasExtraJson`.
 
@@ -134,10 +153,10 @@ pnpm --filter @creator-hub/api build
 pnpm --filter @creator-hub/web build
 ```
 
-Smoke + unit: `/health`, login, **projects CRUD**, **social accounts** (máscaras, vault round-trip, ManualPublisher). Full stack: `docker compose --profile web up --build`.
+Smoke + unit: `/health`, login, **projects CRUD**, **social accounts**, **episodes + upload/list/delete** (MIME, path traversal). Full stack: `docker compose --profile web up --build`.
 
 ## Phase 1 DoD vs later
 
-**In this PR:** monorepo, Compose, migrations (`users`, `workspaces`, `content_projects`, `social_accounts`, `social_account_secrets`), seed user, login, project CRUD + UI, social account link + encrypted credentials, ManualPublisher stub, basic tests.
+**In this PR:** monorepo, Compose, migrations (`users`, `workspaces`, `content_projects`, `social_accounts`, `social_account_secrets`, **`episodes`**, **`media_assets`**), seed user, login, project CRUD + UI, social account link + encrypted credentials, **content library + multipart upload** (LocalMediaStorage), ManualPublisher stub, basic tests.
 
-**Depois (OAuth real + Phase 2+):** popup OAuth TikTok/Meta/YouTube, refresh automático de tokens, Episodes/Beats, media upload, scheduler/publishers reais, affiliate module, mobile app, Remotion/TTS, billing, KMS.
+**Depois (calendário / publish + Phase 2+):** scheduler + publications, OAuth real TikTok/Meta/YouTube, beats/roteiro completo, Remotion/TTS, affiliate module, mobile app, billing, KMS, S3/R2.

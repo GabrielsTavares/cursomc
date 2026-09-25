@@ -1,8 +1,12 @@
 import type {
   ApiErrorBody,
+  ContentKind,
   ContentProject,
+  CreateEpisodeRequest,
   CreateProjectRequest,
   CreateSocialAccountRequest,
+  Episode,
+  MediaAsset,
   ProjectType,
   SocialAccount,
   UpdateSocialAccountRequest,
@@ -83,7 +87,8 @@ async function parseJson(res: Response): Promise<unknown> {
 
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  if (init.body && !headers.has("Content-Type")) {
+  const isFormData = typeof FormData !== "undefined" && init.body instanceof FormData;
+  if (init.body && !headers.has("Content-Type") && !isFormData) {
     headers.set("Content-Type", "application/json");
   }
   const token = getStoredToken();
@@ -212,9 +217,140 @@ export async function deleteSocialAccount(
   });
 }
 
+export async function fetchEpisodes(projectId: string): Promise<Episode[]> {
+  const result = await apiFetch<{ episodes: Episode[] }>(
+    `/api/v1/projects/${projectId}/episodes`,
+  );
+  return result.episodes;
+}
+
+export async function createEpisode(
+  projectId: string,
+  input: CreateEpisodeRequest,
+): Promise<Episode> {
+  const result = await apiFetch<{ episode: Episode }>(
+    `/api/v1/projects/${projectId}/episodes`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+  return result.episode;
+}
+
+export async function deleteEpisode(projectId: string, episodeId: string): Promise<void> {
+  await apiFetch<null>(`/api/v1/projects/${projectId}/episodes/${episodeId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function fetchEpisodeMedia(
+  projectId: string,
+  episodeId: string,
+): Promise<MediaAsset[]> {
+  const result = await apiFetch<{ media: MediaAsset[] }>(
+    `/api/v1/projects/${projectId}/episodes/${episodeId}/media`,
+  );
+  return result.media;
+}
+
+export async function fetchProjectMedia(projectId: string): Promise<MediaAsset[]> {
+  const result = await apiFetch<{ media: MediaAsset[] }>(
+    `/api/v1/projects/${projectId}/media`,
+  );
+  return result.media;
+}
+
+export async function uploadEpisodeMedia(
+  projectId: string,
+  episodeId: string,
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<MediaAsset> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const url = `${API_URL}/api/v1/projects/${projectId}/episodes/${episodeId}/media`;
+    xhr.open("POST", url);
+    xhr.withCredentials = true;
+    const token = getStoredToken();
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+
+    xhr.upload.onprogress = (event) => {
+      if (!onProgress || !event.lengthComputable) return;
+      onProgress(Math.round((event.loaded / event.total) * 100));
+    };
+
+    xhr.onload = () => {
+      let data: unknown = null;
+      try {
+        data = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+      } catch {
+        data = null;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const body = data as { media: MediaAsset };
+        resolve(body.media);
+        return;
+      }
+      const errBody =
+        data && typeof data === "object" && "message" in data
+          ? (data as ApiErrorBody)
+          : null;
+      reject(
+        new ApiClientError(
+          humanizeError(xhr.status, errBody, false),
+          xhr.status,
+          errBody?.code,
+        ),
+      );
+    };
+
+    xhr.onerror = () => {
+      reject(new ApiClientError(humanizeError(0, null, true), 0));
+    };
+
+    const form = new FormData();
+    form.append("file", file, file.name);
+    xhr.send(form);
+  });
+}
+
+export async function deleteMediaAsset(projectId: string, mediaId: string): Promise<void> {
+  await apiFetch<null>(`/api/v1/projects/${projectId}/media/${mediaId}`, {
+    method: "DELETE",
+  });
+}
+
+/** Authenticated blob URL for 9:16 preview (revoke when done). */
+export async function fetchMediaBlobUrl(downloadUrl: string): Promise<string> {
+  const headers = new Headers();
+  const token = getStoredToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${downloadUrl}`, {
+      headers,
+      credentials: "include",
+    });
+  } catch {
+    throw new ApiClientError(humanizeError(0, null, true), 0);
+  }
+  if (!res.ok) {
+    throw new ApiClientError("Não foi possível carregar a pré-visualização.", res.status);
+  }
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
 export const UI_PROJECT_TYPES: { value: ProjectType; label: string }[] = [
   { value: "CREATOR", label: "Creator" },
   { value: "AFFILIATE", label: "Affiliate" },
   { value: "BRAND", label: "Brand" },
   { value: "OTHER", label: "Other" },
+];
+
+export const UI_CONTENT_KINDS: { value: ContentKind; label: string; hint: string }[] = [
+  { value: "VIDEO", label: "Vídeo único", hint: "Um ficheiro mp4 ou webm" },
+  { value: "IMAGE", label: "Foto", hint: "Uma imagem jpg, png ou webp" },
+  { value: "CAROUSEL", label: "Carrossel", hint: "Sequência ordenada de imagens" },
 ];

@@ -18,6 +18,10 @@ const envSchema = z.object({
   SEED_USER_PASSWORD: z.string().min(8).default("changeme123"),
   SEED_USER_DISPLAY_NAME: z.string().default("Gabriel"),
   MEDIA_ROOT: z.string().default("/data/media"),
+  /** Max image upload size in bytes (jpg/png/webp). Default 15 MiB. */
+  MEDIA_MAX_IMAGE_BYTES: z.coerce.number().int().positive().default(15 * 1024 * 1024),
+  /** Max video upload size in bytes (mp4/webm). Default 200 MiB. */
+  MEDIA_MAX_VIDEO_BYTES: z.coerce.number().int().positive().default(200 * 1024 * 1024),
   /**
    * AES key material for social credential vault (MVP).
    * Min 32 chars. Not a full KMS — see README limitations.

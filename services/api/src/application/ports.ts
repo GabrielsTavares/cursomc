@@ -1,10 +1,15 @@
 import type {
+  ContentKind,
+  EpisodeStatus,
+  MediaAssetType,
   ProjectType,
   SocialAccountStatus,
   SocialPlatform,
 } from "@creator-hub/shared-types";
 import type {
   ContentProjectRecord,
+  EpisodeRecord,
+  MediaAssetRecord,
   SocialAccountRecord,
   SocialCredentialSecrets,
   UserRecord,
@@ -63,6 +68,61 @@ export interface SocialAccountRepository {
   getSecrets(socialAccountId: string): Promise<SocialCredentialSecrets | null>;
   upsertSecrets(socialAccountId: string, secrets: SocialCredentialSecrets): Promise<void>;
   deleteSecrets(socialAccountId: string): Promise<void>;
+}
+
+export interface EpisodeRepository {
+  listByProject(projectId: string): Promise<EpisodeRecord[]>;
+  findByIdForProject(id: string, projectId: string): Promise<EpisodeRecord | null>;
+  create(input: {
+    projectId: string;
+    title: string;
+    contentKind: ContentKind;
+    status: EpisodeStatus;
+    locale: string;
+    hook: string | null;
+    description: string | null;
+    targetDurationSeconds: number | null;
+  }): Promise<EpisodeRecord>;
+  delete(id: string, projectId: string): Promise<boolean>;
+  countMediaByEpisodeIds(episodeIds: string[]): Promise<Map<string, number>>;
+}
+
+export interface MediaAssetRepository {
+  listByProject(projectId: string): Promise<MediaAssetRecord[]>;
+  listByEpisode(episodeId: string): Promise<MediaAssetRecord[]>;
+  findByIdForProject(id: string, projectId: string): Promise<MediaAssetRecord | null>;
+  create(input: {
+    projectId: string;
+    episodeId: string | null;
+    type: MediaAssetType;
+    storageKey: string;
+    mime: string;
+    sizeBytes: number;
+    checksum: string | null;
+    originalFilename: string | null;
+    sortOrder: number;
+  }): Promise<MediaAssetRecord>;
+  delete(id: string, projectId: string): Promise<MediaAssetRecord | null>;
+  nextSortOrder(episodeId: string): Promise<number>;
+}
+
+export interface StoredMediaObject {
+  storageKey: string;
+  sizeBytes: number;
+  checksum: string;
+  absolutePath: string;
+}
+
+/** Port: store/get/delete bytes; returns logical URI (storage key). */
+export interface MediaStorage {
+  store(input: {
+    projectId: string;
+    originalFilename: string | null;
+    mime: string;
+    body: Buffer;
+  }): Promise<StoredMediaObject>;
+  resolvePath(storageKey: string): string;
+  delete(storageKey: string): Promise<void>;
 }
 
 export interface PasswordHasher {

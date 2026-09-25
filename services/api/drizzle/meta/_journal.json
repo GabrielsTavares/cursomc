@@ -15,6 +15,13 @@
       "when": 1727100000000,
       "tag": "0001_social_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1727200000000,
+      "tag": "0002_episodes_media",
+      "breakpoints": true
     }
   ]
 }
