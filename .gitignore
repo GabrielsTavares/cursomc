@@ -1,8 +1,26 @@
+# Creator Hub / Node
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+.env
+.env.local
+*.log
+coverage/
+data/media/**
+!data/media/.gitkeep
+
+# OS / editors
+.DS_Store
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Legacy Spring (cursomc) — keep build artifacts out of git
 HELP.md
 /target/
 !.mvn/wrapper/maven-wrapper.jar
-
-### STS ###
 .apt_generated
 .classpath
 .factorypath
@@ -10,14 +28,7 @@ HELP.md
 .settings
 .springBeans
 .sts4-cache
-
-### IntelliJ IDEA ###
 .idea
-*.iws
-*.iml
-*.ipr
-
-### NetBeans ###
 /nbproject/private/
 /nbbuild/
 /dist/
