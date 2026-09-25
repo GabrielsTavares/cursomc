@@ -4,6 +4,7 @@ export type ContentProjectId = string & { readonly __brand: "ContentProjectId" }
 export type SocialAccountId = string & { readonly __brand: "SocialAccountId" };
 export type EpisodeId = string & { readonly __brand: "EpisodeId" };
 export type MediaAssetId = string & { readonly __brand: "MediaAssetId" };
+export type ScheduledPublicationId = string & { readonly __brand: "ScheduledPublicationId" };
 
 export type ProjectType =
   | "CREATOR"
@@ -35,6 +36,17 @@ export type EpisodeStatus =
   | "COMPLETED";
 
 export type MediaAssetType = "AUDIO" | "VIDEO" | "IMAGE" | "THUMBNAIL" | "OTHER";
+
+export type PublicationStatus =
+  | "DRAFT"
+  | "SCHEDULED"
+  | "PUBLISHING"
+  | "PUBLISHED"
+  | "FAILED"
+  | "CANCELLED"
+  | "MANUAL_REQUIRED";
+
+export type PublishMode = "live" | "dry_run";
 
 export interface User {
   id: UserId;
@@ -190,6 +202,38 @@ export interface CreateEpisodeRequest {
 
 export interface MediaLibraryResponse {
   media: MediaAsset[];
+}
+
+export interface ScheduledPublication {
+  id: ScheduledPublicationId;
+  projectId: ContentProjectId;
+  episodeId: EpisodeId;
+  platform: SocialPlatform;
+  socialAccountId: SocialAccountId;
+  scheduledAt: string;
+  caption: string | null;
+  status: PublicationStatus;
+  externalPostId: string | null;
+  errorMessage: string | null;
+  checklist: string[] | null;
+  publishAttemptId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScheduleTargetInput {
+  socialAccountId: string;
+  scheduledAt: string;
+  caption?: string;
+}
+
+export interface CreateScheduleRequest {
+  episodeId: string;
+  targets: ScheduleTargetInput[];
+}
+
+export interface PublicationsResponse {
+  publications: ScheduledPublication[];
 }
 
 export interface ApiErrorBody {

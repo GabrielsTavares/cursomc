@@ -26,6 +26,9 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 3000
       MEDIA_ROOT: /data/media
+      PUBLISH_MODE: ${PUBLISH_MODE:-dry_run}
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+      SCHEDULER_INTERVAL_SECONDS: ${SCHEDULER_INTERVAL_SECONDS:-15}
     ports:
       - "${API_PORT:-3000}:3000"
     volumes:

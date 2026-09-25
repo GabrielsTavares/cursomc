@@ -3,6 +3,7 @@ import type {
   EpisodeStatus,
   MediaAssetType,
   ProjectType,
+  PublicationStatus,
   SocialAccountStatus,
   SocialPlatform,
 } from "@creator-hub/shared-types";
@@ -10,6 +11,7 @@ import type {
   ContentProjectRecord,
   EpisodeRecord,
   MediaAssetRecord,
+  ScheduledPublicationRecord,
   SocialAccountRecord,
   SocialCredentialSecrets,
   UserRecord,
@@ -106,6 +108,39 @@ export interface MediaAssetRepository {
   nextSortOrder(episodeId: string): Promise<number>;
 }
 
+export interface PublicationRepository {
+  listByProject(projectId: string): Promise<ScheduledPublicationRecord[]>;
+  findByIdForProject(id: string, projectId: string): Promise<ScheduledPublicationRecord | null>;
+  createMany(
+    rows: Array<{
+      projectId: string;
+      episodeId: string;
+      platform: SocialPlatform;
+      socialAccountId: string;
+      scheduledAt: Date;
+      caption: string | null;
+      status: PublicationStatus;
+    }>,
+  ): Promise<ScheduledPublicationRecord[]>;
+  update(
+    id: string,
+    patch: Partial<{
+      status: PublicationStatus;
+      scheduledAt: Date;
+      caption: string | null;
+      externalPostId: string | null;
+      errorMessage: string | null;
+      checklist: string[] | null;
+      publishAttemptId: string | null;
+    }>,
+  ): Promise<ScheduledPublicationRecord | null>;
+  /**
+   * Atomically claim due SCHEDULED rows (FOR UPDATE SKIP LOCKED).
+   * Returns claimed rows now in PUBLISHING with publishAttemptId set.
+   */
+  claimDue(limit: number, attemptId: string, now?: Date): Promise<ScheduledPublicationRecord[]>;
+}
+
 export interface StoredMediaObject {
   storageKey: string;
   sizeBytes: number;
@@ -141,19 +176,34 @@ export interface CredentialVault {
   decrypt(ciphertext: string): SocialCredentialSecrets;
 }
 
-export interface ManualPublishRequest {
+export interface PublishCommand {
+  publicationId: string;
   platform: SocialPlatform;
-  displayName: string;
-  caption?: string;
-  mediaHint?: string;
+  caption: string;
+  mediaAbsolutePath: string;
+  mime: string;
+  mediaType: MediaAssetType;
+  credentials: SocialCredentialSecrets;
+  /** TikTok open_id / Instagram IG user id / etc. */
+  externalAccountId: string | null;
+  accountDisplayName: string;
+  dryRun: boolean;
 }
 
-export interface ManualPublishResult {
-  status: "MANUAL_REQUIRED";
-  checklist: string[];
+export type PublishOutcomeStatus = "PUBLISHED" | "FAILED" | "MANUAL_REQUIRED";
+
+export interface PublishResult {
+  status: PublishOutcomeStatus;
+  externalPostId?: string | null;
+  errorMessage?: string | null;
+  checklist?: string[];
 }
 
-/** Port for social publishing — ManualPublisher first (ADR-006). */
+/** Port for social publishing — one adapter per platform (+ Fake/Manual). */
 export interface SocialPublisher {
-  publish(request: ManualPublishRequest): Promise<ManualPublishResult>;
+  publish(command: PublishCommand): Promise<PublishResult>;
+}
+
+export interface PublisherRegistry {
+  resolve(platform: SocialPlatform): SocialPublisher;
 }

@@ -93,8 +93,32 @@ export const mediaAssets = pgTable("media_assets", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+export const scheduledPublications = pgTable("scheduled_publications", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => contentProjects.id, { onDelete: "cascade" }),
+  episodeId: uuid("episode_id")
+    .notNull()
+    .references(() => episodes.id, { onDelete: "cascade" }),
+  platform: varchar("platform", { length: 40 }).notNull(),
+  socialAccountId: uuid("social_account_id")
+    .notNull()
+    .references(() => socialAccounts.id, { onDelete: "cascade" }),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+  caption: text("caption"),
+  status: varchar("status", { length: 40 }).notNull().default("SCHEDULED"),
+  externalPostId: varchar("external_post_id", { length: 320 }),
+  errorMessage: text("error_message"),
+  checklist: jsonb("checklist").$type<string[] | null>(),
+  publishAttemptId: uuid("publish_attempt_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type UserRow = typeof users.$inferSelect;
 export type ContentProjectRow = typeof contentProjects.$inferSelect;
 export type SocialAccountRow = typeof socialAccounts.$inferSelect;
 export type EpisodeRow = typeof episodes.$inferSelect;
 export type MediaAssetRow = typeof mediaAssets.$inferSelect;
+export type ScheduledPublicationRow = typeof scheduledPublications.$inferSelect;

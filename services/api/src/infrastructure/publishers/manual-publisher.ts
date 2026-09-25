@@ -1,22 +1,30 @@
-import type { ManualPublishRequest, ManualPublishResult, SocialPublisher } from "../../application/ports.js";
+import type { PublishCommand, PublishResult, SocialPublisher } from "../../application/ports.js";
 
 /**
- * Stub publisher (ADR-006): never calls external APIs.
- * Marks work as MANUAL_REQUIRED with a human checklist.
+ * Marks MANUAL_REQUIRED with a human checklist (Kwai BR, YouTube stub, fallback).
+ * Never invents undocumented APIs.
  */
 export class ManualPublisher implements SocialPublisher {
-  async publish(request: ManualPublishRequest): Promise<ManualPublishResult> {
+  async publish(command: PublishCommand): Promise<PublishResult> {
+    if (command.dryRun) {
+      return {
+        status: "PUBLISHED",
+        externalPostId: `dry_run_manual_${command.publicationId.slice(0, 8)}`,
+      };
+    }
+
     return {
       status: "MANUAL_REQUIRED",
       checklist: [
-        `Abrir a app / studio de ${request.platform}`,
-        `Conta: ${request.displayName}`,
-        request.mediaHint
-          ? `Carregar mídia: ${request.mediaHint}`
-          : "Carregar o ficheiro de mídia exportado pelo Hub",
-        request.caption ? `Colar legenda: ${request.caption}` : "Colar a legenda gerada no Hub",
-        "Publicar e marcar o episódio como feito no Hub",
+        `Abrir a app / studio de ${command.platform}`,
+        `Conta: ${command.accountDisplayName}`,
+        `Carregar mídia local: ${command.mediaAbsolutePath}`,
+        command.caption
+          ? `Colar legenda: ${command.caption}`
+          : "Colar a legenda gerada no Hub",
+        "Publicar na rede e no Hub clicar “Marquei como publicado”",
       ],
+      errorMessage: null,
     };
   }
 }

@@ -6,6 +6,8 @@ import type {
   MediaAsset,
   MediaAssetType,
   ProjectType,
+  PublicationStatus,
+  ScheduledPublication,
   SocialAccount,
   SocialAccountStatus,
   SocialCredentialMasks,
@@ -78,6 +80,23 @@ export interface MediaAssetRecord {
   originalFilename: string | null;
   sortOrder: number;
   createdAt: Date;
+}
+
+export interface ScheduledPublicationRecord {
+  id: string;
+  projectId: string;
+  episodeId: string;
+  platform: SocialPlatform;
+  socialAccountId: string;
+  scheduledAt: Date;
+  caption: string | null;
+  status: PublicationStatus;
+  externalPostId: string | null;
+  errorMessage: string | null;
+  checklist: string[] | null;
+  publishAttemptId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export function toPublicUser(user: UserRecord): User {
@@ -176,6 +195,25 @@ export function toPublicMediaAsset(asset: MediaAssetRecord): MediaAsset {
   };
 }
 
+export function toPublicPublication(row: ScheduledPublicationRecord): ScheduledPublication {
+  return {
+    id: row.id as ScheduledPublication["id"],
+    projectId: row.projectId as ScheduledPublication["projectId"],
+    episodeId: row.episodeId as ScheduledPublication["episodeId"],
+    platform: row.platform,
+    socialAccountId: row.socialAccountId as ScheduledPublication["socialAccountId"],
+    scheduledAt: row.scheduledAt.toISOString(),
+    caption: row.caption,
+    status: row.status,
+    externalPostId: row.externalPostId,
+    errorMessage: row.errorMessage,
+    checklist: row.checklist,
+    publishAttemptId: row.publishAttemptId,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
 export function hasAnyCredential(secrets: SocialCredentialSecrets | null | undefined): boolean {
   if (!secrets) return false;
   return Boolean(
@@ -205,7 +243,7 @@ export function mergeCredentials(
     const value = patch[key];
     if (value === undefined) continue;
     const trimmed = value.trim();
-    if (!trimmed) continue; // blank = leave unchanged (UI placeholder)
+    if (!trimmed) continue;
     next[key] = trimmed;
   }
   return next;
@@ -252,6 +290,16 @@ export const MEDIA_ASSET_TYPES: MediaAssetType[] = [
   "IMAGE",
   "THUMBNAIL",
   "OTHER",
+];
+
+export const PUBLICATION_STATUSES: PublicationStatus[] = [
+  "DRAFT",
+  "SCHEDULED",
+  "PUBLISHING",
+  "PUBLISHED",
+  "FAILED",
+  "CANCELLED",
+  "MANUAL_REQUIRED",
 ];
 
 export const ALLOWED_IMAGE_MIMES = new Set([
