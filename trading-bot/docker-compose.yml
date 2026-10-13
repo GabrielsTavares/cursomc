@@ -6,6 +6,7 @@ services:
     env_file: .env
     volumes:
       - "./user_data:/freqtrade/user_data"
+      - "./reporting:/freqtrade/reporting:ro"
     ports:
       - "127.0.0.1:8080:8080"
     command: >
@@ -13,3 +14,14 @@ services:
       --logfile /freqtrade/user_data/logs/freqtrade.log
       --db-url sqlite:////freqtrade/user_data/tradesv3.sqlite
       --config /freqtrade/user_data/config.json
+
+  weekly-report:
+    image: freqtradeorg/freqtrade:2026.9
+    restart: unless-stopped
+    container_name: weekly-report
+    env_file: .env
+    working_dir: /freqtrade
+    volumes:
+      - "./user_data:/freqtrade/user_data:ro"
+      - "./reporting:/freqtrade/reporting:ro"
+    entrypoint: ["python", "-m", "reporting.weekly_report"]
